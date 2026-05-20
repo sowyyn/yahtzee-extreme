@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Kniffel Extreme</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="KniffelX">
+  <meta name="theme-color" content="#7c3aed">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: #0d0b1a; color: #f0eeff; font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+    input[type=number] { -moz-appearance: textfield; }
+    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import { createElement as h, useState, useEffect } from 'https://esm.sh/react@18';
+import { createRoot } from 'https://esm.sh/react-dom@18/client';
+import htm from 'https://esm.sh/htm@3';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'https://esm.sh/recharts@2?deps=react@18,react-dom@18';
+
+const html = htm.bind(h);
+
+// ═══ DATA ════════════════════════════════════════════════════════
+
+const UPPER = [
+  { id:'einer',   label:'Einer',   face:'⚀', n:1 },
+  { id:'zweier',  label:'Zweier',  face:'⚁', n:2 },
+  { id:'dreier',  label:'Dreier',  face:'⚂', n:3 },
+  { id:'vierer',  label:'Vierer',  face:'⚃', n:4 },
+  { id:'fuenfer', label:'Fünfer',  face:'⚄', n:5 },
+  { id:'sechser', label:'Sechser', face:'⚅', n:6 },
+];
+const LOWER = [
+  { id:'dreierpasch',      label:'Dreierpasch',     t:'var',   desc:'alle Augen' },
+  { id:'viererpasch',      label:'Viererpasch',     t:'var',   desc:'alle Augen' },
+  { id:'zweiPaare',        label:'Zwei Paare',      t:'var',   desc:'alle Augen' },
+  { id:'dreiPaare',        label:'Drei Paare',      t:'fix',   pts:35 },
+  { id:'zweiDreier',       label:'Zwei Dreier',     t:'fix',   pts:45 },
+  { id:'fullHouse',        label:'Full-House',      t:'fix',   pts:25 },
+  { id:'grossesFullHouse', label:'Gr. Full-House',  t:'fix',   pts:45 },
+  { id:'kleineStrasse',    label:'Kl. Straße',      t:'fix',   pts:30 },
+  { id:'grosseStrasse',    label:'Gr. Straße',      t:'fix',   pts:40 },
+  { id:'highway',          label:'Highway',         t:'fix',   pts:50 },
+  { id:'kniffel',          label:'Kniffel',         t:'fix',   pts:50 },
+  { id:'kniffelExtreme',   label:'Kniffel Xtreme',  t:'fix',   pts:75 },
+  { id:'zehnMinus',        label:'10 oder weniger', t:'fix',   pts:40 },
+  { id:'dreiDreissig',     label:'33 oder mehr',    t:'fix',   pts:40 },
+  { id:'chance',           label:'Chance',          t:'var',   desc:'alle Augen' },
+  { id:'superChance',      label:'Super Chance',    t:'super', desc:'Augen × 2' },
+];
+const ALL_IDS = [...UPPER.map(c=>c.id), ...LOWER.map(c=>c.id)];
+
+const C = {
+  bg:'#0d0b1a', surface:'#16122b', surface2:'#1e1a35', border:'#2a2448',
+  p0:'#a855f7', p1:'#ec4899', p0l:'#d8b4fe', p1l:'#f9a8d4',
+  text:'#f0eeff', muted:'#7268a0', muted2:'#4a4270',
+  green:'#22c55e', red:'#ef4444',
+};
+
+// ═══ HELPERS ═════════════════════════════════════════════════════
+
+function calc(scores) {
+  const u = UPPER.reduce((s,c) => s + (scores[c.id] ?? 0), 0);
+  const b = u >= 73 ? 45 : 0;
+  const l = LOWER.reduce((s,c) => s + (scores[c.id] ?? 0), 0);
+  return { u, b, uTotal:u+b, l, total:u+b+l };
+}
+function isDone(game) {
+  return game.players.every(p => ALL_IDS.every(id => p.scores[id] !== undefined));
+}
+function ls(key, def) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+function lsDel(key) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
+// ═══ GITHUB SYNC ═════════════════════════════════════════════════
+
+async function ghRead(cfg) {
+  const r = await fetch(
+    `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/gamedata.json`,
+    { headers: { Authorization:`token ${cfg.token}`, Accept:'application/vnd.github.v3+json' } }
+  );
+  if (r.status === 404) return { data:null, sha:null };
+  if (!r.ok) throw new Error(`GitHub Fehler ${r.status}`);
+  const j = await r.json();
+  return { data: JSON.parse(atob(j.content.replace(/\n/g,''))), sha: j.sha };
+}
+
+async function ghWrite(cfg, data, sha) {
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
+  const body = { message:'Kniffel data update', content };
+  if (sha) body.sha = sha;
+  const r = await fetch(
+    `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/gamedata.json`,
+    { method:'PUT', headers:{ Authorization:`token ${cfg.token}`,
+      Accept:'application/vnd.github.v3+json', 'Content-Type':'application/json' },
+      body: JSON.stringify(body) }
+  );
+  if (!r.ok) throw new Error(`GitHub Fehler ${r.status}`);
+  return (await r.json()).content.sha;
+}
+
+function mergeGames(local, remote) {
+  const all = [...(remote||[])];
+  const ids = new Set(all.map(g=>g.id));
+  for (const g of (local||[])) if (!ids.has(g.id)) { all.push(g); ids.add(g.id); }
+  return all.sort((a,b) => a.id.localeCompare(b.id));
+}
+
+// ═══ APP ═════════════════════════════════════════════════════════
+
+function App() {
+  const [screen,  setScreen]  = useState('home');
+  const [games,   setGames]   = useState(() => ls('kx:games', []));
+  const [cur,     setCur]     = useState(() => ls('kx:current', null));
+  const [players, setPlayers] = useState(() => ls('kx:players', ['Spieler 1','Spieler 2']));
+  const [modal,   setModal]   = useState(null);
+  const [mVal,    setMVal]    = useState('');
+  const [stab,    setStab]    = useState('overview');
+  const [ghCfg,   setGhCfg]   = useState(() => ls('kx:gh', null));
+  const [syncSt,  setSyncSt]  = useState('idle');
+  const [syncMsg, setSyncMsg] = useState('');
+
+  useEffect(() => {
+    if (players[0] === 'Spieler 1') setScreen('setup');
+    else if (ghCfg?.token) doSync();
+  }, []);
+
+  const doSync = async (cfg) => {
+    const c = cfg || ghCfg;
+    if (!c?.token) return;
+    setSyncSt('syncing');
+    try {
+      const { data, sha } = await ghRead(c);
+      if (data) {
+        const merged = mergeGames(ls('kx:games',[]), data.games);
+        setGames(merged); lsSet('kx:games', merged);
+        if (data.players) { setPlayers(data.players); lsSet('kx:players', data.players); }
+        lsSet('kx:gh_sha', sha);
+      }
+      setSyncSt('ok');
+      setSyncMsg(new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
+    } catch(e) { setSyncSt('error'); setSyncMsg(e.message); }
+  };
+
+  const pushToGh = async (newGames, newPlayers) => {
+    const c = ghCfg;
+    if (!c?.token) return;
+    setSyncSt('syncing');
+    try {
+      const sha = ls('kx:gh_sha', null);
+      const newSha = await ghWrite(c, { version:1, players:newPlayers, games:newGames }, sha);
+      lsSet('kx:gh_sha', newSha);
+      setSyncSt('ok');
+      setSyncMsg(new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
+    } catch(e) { setSyncSt('error'); setSyncMsg(e.message); }
+  };
+
+  const saveGames = (g, p) => { setGames(g); lsSet('kx:games',g); pushToGh(g, p||players); };
+  const saveCur   = (g) => { setCur(g); g ? lsSet('kx:current',g) : lsDel('kx:current'); };
+  const savePlayers = (p) => { setPlayers(p); lsSet('kx:players',p); };
+
+  const newGame = () => {
+    saveCur({ id:Date.now().toString(), date:new Date().toLocaleDateString('de-DE'),
+      players:players.map(name=>({name,scores:{}})) });
+    setScreen('game');
+  };
+  const finishGame = () => { const ng=[...games,cur]; saveGames(ng,players); saveCur(null); setScreen('home'); };
+
+  const openCell = (pIdx,cat) => {
+    setModal({pIdx,cat});
+    const v = cur.players[pIdx].scores[cat.id];
+    setMVal(v!==undefined ? String(v) : '');
+  };
+  const enterScore = (val) => {
+    const {pIdx,cat}=modal;
+    saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,scores:{...p.scores,[cat.id]:val}}:p)});
+    setModal(null);
+  };
+  const clearCell = () => {
+    const {pIdx,cat}=modal;
+    const scores={...cur.players[pIdx].scores}; delete scores[cat.id];
+    saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,scores}:p)});
+    setModal(null);
+  };
+
+  const syncBadge = html`<span style=${{fontSize:11,color:syncSt==='ok'?C.green:syncSt==='error'?C.red:C.muted}}>
+    ${syncSt==='syncing'?'↻ Sync…':syncSt==='ok'?`☁ ${syncMsg}`:syncSt==='error'?'⚠ Sync-Fehler':''}
+  </span>`;
+
+  return html`<div style=${{minHeight:'100vh',background:C.bg,color:C.text}}>
+    ${screen==='home'  && html`<${Home} ...${{players,games,cur,syncBadge,ghCfg,
+      onNew:newGame, onContinue:()=>setScreen('game'), onStats:()=>setScreen('stats'),
+      onSetup:()=>setScreen('setup'), onGithub:()=>setScreen('github'), onSync:doSync}} />`}
+    ${screen==='setup' && html`<${Setup} initial=${players}
+      onDone=${p=>{savePlayers(p);setScreen('home');}} />`}
+    ${screen==='game' && cur && html`
+      <${Game} ...${{game:cur,onCell:openCell,onFinish:finishGame,onBack:()=>setScreen('home')}} />
+      ${modal && html`<${Modal} ...${{modal,val:mVal,setVal:setMVal,
+        onScore:enterScore,onCross:()=>enterScore(0),onClear:clearCell,onClose:()=>setModal(null)}} />`}
+    `}
+    ${screen==='stats'  && html`<${Stats} ...${{games,players,tab:stab,setTab:setStab,onBack:()=>setScreen('home')}} />`}
+    ${screen==='github' && html`<${GhSettings} initial=${ghCfg}
+      onSave=${cfg=>{setGhCfg(cfg);lsSet('kx:gh',cfg);if(cfg)doSync(cfg);setScreen('home');}}
+      onBack=${()=>setScreen('home')} />`}
+  </div>`;
+}
+
+// ═══ HOME ════════════════════════════════════════════════════════
+
+function Home({players,games,cur,syncBadge,ghCfg,onNew,onContinue,onStats,onSetup,onGithub,onSync}) {
+  const recent = [...games].reverse().slice(0,5);
+  return html`<div style=${{maxWidth:420,margin:'0 auto',padding:'0 16px 48px'}}>
+    <div style=${{textAlign:'center',padding:'48px 0 28px'}}>
+      <div style=${{fontSize:42,fontWeight:900,letterSpacing:-1}}>
+        Kniffel<span style=${{color:C.p0,fontStyle:'italic'}}>Extreme</span>
+      </div>
+      <div style=${{marginTop:6,fontSize:14,color:C.muted}}>
+        <span style=${{color:C.p0l}}>${players[0]}</span>
+        <span style=${{margin:'0 8px',color:C.muted2}}>vs</span>
+        <span style=${{color:C.p1l}}>${players[1]}</span>
+      </div>
+      <div style=${{marginTop:6}}>${syncBadge}</div>
+    </div>
+    <div style=${{display:'flex',flexDirection:'column',gap:10}}>
+      ${cur && html`<${Btn} onClick=${onContinue} bg=${C.p0}>▶ Spiel fortsetzen</${Btn}>`}
+      <${Btn} onClick=${onNew} bg=${C.surface2} border=${C.border}>+ Neues Spiel</${Btn}>
+      <${Btn} onClick=${onStats} bg=${C.surface2} border=${C.border}>
+        📊 Statistiken <span style=${{fontSize:12,color:C.muted,marginLeft:4}}>${games.length} Spiele</span>
+      </${Btn}>
+    </div>
+    <div style=${{display:'flex',justifyContent:'center',gap:20,marginTop:14}}>
+      <button onClick=${onGithub} style=${{background:'none',border:'none',color:ghCfg?.token?C.p0l:C.muted,cursor:'pointer',fontSize:13}}>
+        ☁ GitHub Sync${ghCfg?.token?' (aktiv)':''}
+      </button>
+      <button onClick=${onSetup} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:13}}>✏️ Namen</button>
+    </div>
+    ${recent.length>0 && html`<div style=${{marginTop:28}}>
+      <div style=${{fontSize:11,color:C.muted2,letterSpacing:2,textTransform:'uppercase',marginBottom:10,fontWeight:700}}>Letzte Spiele</div>
+      ${recent.map(g=>{
+        const s=g.players.map(p=>calc(p.scores).total);
+        return html`<div key=${g.id} style=${{display:'flex',justifyContent:'space-between',alignItems:'center',
+          padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+          <span style=${{color:C.muted,fontSize:12}}>${g.date}</span>
+          <div style=${{display:'flex',gap:14,fontSize:13}}>
+            <span style=${{color:s[0]>=s[1]?C.p0l:C.muted}}>${g.players[0].name}: <strong>${s[0]}</strong></span>
+            <span style=${{color:s[1]>=s[0]?C.p1l:C.muted}}>${g.players[1].name}: <strong>${s[1]}</strong></span>
+          </div>
+        </div>`;
+      })}
+    </div>`}
+  </div>`;
+}
+
+// ═══ SETUP ═══════════════════════════════════════════════════════
+
+function Setup({initial,onDone}) {
+  const [names,setNames]=useState([...initial]);
+  return html`<div style=${{maxWidth:400,margin:'0 auto',padding:'60px 20px'}}>
+    <div style=${{fontSize:24,fontWeight:800,marginBottom:6}}>Spielernamen</div>
+    <div style=${{color:C.muted,fontSize:13,marginBottom:28}}>Wie heißen die zwei Spieler?</div>
+    ${[0,1].map(i=>html`<div key=${i} style=${{marginBottom:16}}>
+      <label style=${{fontSize:12,color:[C.p0,C.p1][i],fontWeight:700,letterSpacing:1,
+        textTransform:'uppercase',display:'block',marginBottom:6}}>Spieler ${i+1}</label>
+      <input value=${names[i]} onChange=${e=>setNames(names.map((n,j)=>j===i?e.target.value:n))}
+        style=${{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,
+          borderRadius:12,padding:'12px 16px',color:C.text,fontSize:16,outline:'none'}}
+        placeholder=${`Name Spieler ${i+1}`} />
+    </div>`)}
+    <div style=${{marginTop:20}}>
+      <${Btn} onClick=${()=>onDone(names.map((n,i)=>n.trim()||`Spieler ${i+1}`))} bg=${C.p0}>
+        Speichern & loslegen
+      </${Btn}>
+    </div>
+  </div>`;
+}
+
+// ═══ GITHUB SETTINGS ═════════════════════════════════════════════
+
+function GhSettings({initial,onSave,onBack}) {
+  const [token,setToken]=useState(initial?.token||'');
+  const [owner,setOwner]=useState(initial?.owner||'');
+  const [repo,setRepo]  =useState(initial?.repo||'');
+  const [testing,setTesting]=useState(false);
+  const [res,setRes]=useState(null);
+
+  const test = async()=>{
+    setTesting(true);setRes(null);
+    try {
+      const r=await fetch(`https://api.github.com/repos/${owner}/${repo}`,
+        {headers:{Authorization:`token ${token}`}});
+      setRes(r.ok?{ok:true,msg:'✓ Verbindung erfolgreich!'}:{ok:false,msg:`Fehler ${r.status}: Repository nicht gefunden oder kein Zugriff.`});
+    } catch { setRes({ok:false,msg:'Netzwerkfehler.'}); }
+    setTesting(false);
+  };
+
+  const F=({label,val,set,type='text',ph})=>html`<div style=${{marginBottom:14}}>
+    <label style=${{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5}}>${label}</label>
+    <input type=${type} value=${val} onChange=${e=>set(e.target.value)} placeholder=${ph}
+      style=${{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,
+        borderRadius:12,padding:'11px 14px',color:C.text,fontSize:15,outline:'none'}}/>
+  </div>`;
+
+  return html`<div style=${{maxWidth:400,margin:'0 auto',padding:'20px'}}>
+    <div style=${{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <button onClick=${onBack} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:20}}>‹</button>
+      <span style=${{fontSize:20,fontWeight:800}}>☁ GitHub Sync</span>
+    </div>
+    <div style=${{background:C.surface,borderRadius:14,padding:14,marginBottom:18,
+      fontSize:12,color:C.muted,lineHeight:1.7,border:`1px solid ${C.border}`}}>
+      Speichere Spiele in GitHub und greife von jedem Gerät darauf zu.<br/>
+      <strong style=${{color:C.p0l}}>1.</strong> Erstelle ein <strong style=${{color:C.text}}>privates</strong> Repo auf GitHub, z.B. <code style=${{color:C.p0l}}>kniffel-data</code><br/>
+      <strong style=${{color:C.p0l}}>2.</strong> Gehe zu <em>Settings → Developer settings → Personal access tokens → Tokens (classic)</em> → neues Token mit <code style=${{color:C.p0l}}>repo</code>-Berechtigung<br/>
+      <strong style=${{color:C.p0l}}>3.</strong> Token, Nutzername und Repo-Name unten eintragen
+    </div>
+    <${F} label="Personal Access Token" val=${token} set=${setToken} type="password" ph="ghp_..." />
+    <${F} label="GitHub-Nutzername" val=${owner} set=${setOwner} ph="dein-username" />
+    <${F} label="Repository-Name" val=${repo} set=${setRepo} ph="kniffel-data" />
+    <div style=${{display:'flex',gap:10,marginTop:4}}>
+      <button onClick=${test} disabled=${testing||!token||!owner||!repo}
+        style=${{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,
+          padding:'11px',color:C.text,cursor:'pointer',fontSize:14,fontWeight:600,
+          opacity:(!token||!owner||!repo)?0.4:1}}>
+        ${testing?'…':'Testen'}
+      </button>
+      <button onClick=${()=>onSave({token,owner,repo})} disabled=${!token||!owner||!repo}
+        style=${{flex:2,background:C.p0,border:'none',borderRadius:12,padding:'11px',
+          color:'white',cursor:'pointer',fontSize:14,fontWeight:700,
+          opacity:(!token||!owner||!repo)?0.4:1}}>
+        Aktivieren
+      </button>
+    </div>
+    ${res && html`<div style=${{marginTop:12,padding:'10px 14px',borderRadius:10,
+      background:res.ok?'#052e16':'#2d0a0a',color:res.ok?C.green:C.red,fontSize:13}}>
+      ${res.msg}
+    </div>`}
+    ${initial?.token && html`<button onClick=${()=>onSave(null)}
+      style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:12,
+        marginTop:16,display:'block',width:'100%',textAlign:'center'}}>
+      Sync deaktivieren
+    </button>`}
+  </div>`;
+}
+
+// ═══ GAME ════════════════════════════════════════════════════════
+
+function Game({game,onCell,onFinish,onBack}) {
+  const sc=game.players.map(p=>calc(p.scores));
+  const done=isDone(game);
+  const filled=game.players.reduce((s,p)=>s+ALL_IDS.filter(id=>p.scores[id]!==undefined).length,0);
+  const pct=Math.round(filled/(ALL_IDS.length*2)*100);
+
+  const cBg=(pi,id)=>{const v=game.players[pi].scores[id];return v===undefined?C.surface2:v===0?'#2d0a0a':'#1a1040';};
+  const cCol=(pi,id)=>{const v=game.players[pi].scores[id];return v===undefined?C.muted2:v===0?C.red:C.text;};
+  const cTxt=(pi,id)=>{const v=game.players[pi].scores[id];return v===undefined?'·':v===0?'—':String(v);};
+
+  return html`<div style=${{maxWidth:440,margin:'0 auto'}}>
+    <!-- Header -->
+    <div style=${{position:'sticky',top:0,zIndex:10,background:C.bg,borderBottom:`1px solid ${C.border}`,padding:'10px 14px'}}>
+      <div style=${{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+        <button onClick=${onBack} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:20,padding:0}}>‹</button>
+        <span style=${{fontSize:12,color:C.muted,flex:1}}>${game.date}</span>
+        <span style=${{fontSize:11,color:C.muted2}}>${pct}%</span>
+      </div>
+      <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        ${game.players.map((p,i)=>html`<div key=${i} style=${{background:C.surface2,borderRadius:12,
+          padding:'8px 12px',borderLeft:`3px solid ${[C.p0,C.p1][i]}`}}>
+          <div style=${{fontSize:11,color:C.muted}}>${p.name}</div>
+          <div style=${{fontSize:26,fontWeight:900,color:[C.p0l,C.p1l][i]}}>${sc[i].total}</div>
+          <div style=${{fontSize:10,color:C.muted}}>
+            ${sc[i].b?html`<span style=${{color:C.green}}>+45 Bonus ✓</span>`:html`<span>Bonus: noch ${73-sc[i].u}</span>`}
+          </div>
+        </div>`)}
+      </div>
+      <div style=${{height:3,background:C.surface2,borderRadius:2,marginTop:8}}>
+        <div style=${{height:3,borderRadius:2,background:`linear-gradient(90deg,${C.p0},${C.p1})`,width:`${pct}%`,transition:'width 0.3s'}} />
+      </div>
+    </div>
+    <!-- Scorecard -->
+    <div style=${{padding:'8px 12px 32px'}}>
+      <${Sec} label="OBERER TEIL" />
+      <div style=${{display:'grid',gridTemplateColumns:'1fr 78px 78px',gap:5,marginBottom:4}}>
+        <div/>
+        ${game.players.map((p,i)=>html`<div key=${i} style=${{textAlign:'center',fontSize:11,fontWeight:700,color:[C.p0,C.p1][i],paddingBottom:3}}>${p.name}</div>`)}
+      </div>
+      ${UPPER.map(cat=>html`<${Row} key=${cat.id} label=${html`<span style=${{fontSize:15}}>${cat.face} ${cat.label}</span>`} sub=${`nur ${cat.label} zählen`}>
+        ${game.players.map((_,i)=>html`<${Cell_} key=${i} bg=${cBg(i,cat.id)} color=${cCol(i,cat.id)} onClick=${()=>onCell(i,cat)}>${cTxt(i,cat.id)}</${Cell_}>`)}
+      </${Row}>`)}
+      <${Tot} label="Summe" vals=${sc.map(s=>s.u)} />
+      <${Tot} label="Bonus (ab 73 → +45)" vals=${sc.map(s=>s.b)}
+        sub=${sc.map(s=>s.b?'✓':`noch ${73-s.u}`)} subC=${sc.map(s=>s.b?C.green:C.muted)} />
+      <${Tot} label="Oberer Teil gesamt" vals=${sc.map(s=>s.uTotal)} hi=${true} />
+      <${Sec} label="UNTERER TEIL" />
+      ${LOWER.map(cat=>html`<${Row} key=${cat.id} label=${cat.label} sub=${cat.t==='fix'?`${cat.pts} Punkte`:cat.desc}>
+        ${game.players.map((_,i)=>html`<${Cell_} key=${i} bg=${cBg(i,cat.id)} color=${cCol(i,cat.id)} onClick=${()=>onCell(i,cat)}>${cTxt(i,cat.id)}</${Cell_}>`)}
+      </${Row}>`)}
+      <${Tot} label="Unterer Teil" vals=${sc.map(s=>s.l)} />
+      <${Tot} label="Oberer Teil"  vals=${sc.map(s=>s.uTotal)} />
+      <${Tot} label="ENDSUMME" vals=${sc.map(s=>s.total)} hi=${true} big=${true} />
+      ${done && html`<div style=${{marginTop:20,background:'linear-gradient(135deg,#2d1060,#1a0a30)',
+        borderRadius:20,padding:'24px 20px',textAlign:'center',border:`1px solid ${C.p0}`}}>
+        <div style=${{fontSize:28}}>🎉</div>
+        <div style=${{fontSize:22,fontWeight:900,marginTop:8}}>
+          ${sc[0].total>sc[1].total?game.players[0].name:sc[1].total>sc[0].total?game.players[1].name:'Unentschieden'}
+          ${sc[0].total!==sc[1].total?' gewinnt!':''}
+        </div>
+        <div style=${{color:C.muted,marginTop:4,fontSize:14}}>${sc[0].total} : ${sc[1].total}</div>
+        <div style=${{marginTop:16}}><${Btn} onClick=${onFinish} bg=${C.p0}>Spiel speichern & beenden</${Btn}></div>
+      </div>`}
+    </div>
+  </div>`;
+}
+
+function Sec({label}) {
+  return html`<div style=${{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:2,textTransform:'uppercase',
+    padding:'14px 0 6px',borderTop:`1px solid ${C.border}`,marginTop:6}}>${label}</div>`;
+}
+function Row({label,sub,children}) {
+  return html`<div style=${{display:'grid',gridTemplateColumns:'1fr 78px 78px',gap:5,marginBottom:5,alignItems:'center'}}>
+    <div>
+      <div style=${{fontSize:13,fontWeight:600}}>${label}</div>
+      ${sub&&html`<div style=${{fontSize:10,color:C.muted}}>${sub}</div>`}
+    </div>
+    ${children}
+  </div>`;
+}
+function Cell_({bg,color,onClick,children}) {
+  return html`<div onClick=${onClick} style=${{background:bg,borderRadius:10,height:40,
+    display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',
+    fontSize:15,fontWeight:700,color,border:`1px solid ${C.border}`}}>${children}</div>`;
+}
+function Tot({label,vals,sub,subC,hi,big}) {
+  return html`<div style=${{display:'grid',gridTemplateColumns:'1fr 78px 78px',gap:5,marginBottom:3,
+    alignItems:'center',background:hi?C.surface2:'transparent',borderRadius:10,padding:hi?'5px 8px':'3px 8px'}}>
+    <div style=${{fontSize:hi?12:11,color:hi?C.text:C.muted,fontWeight:hi?700:400}}>${label}</div>
+    ${vals.map((v,i)=>html`<div key=${i} style=${{textAlign:'center',
+      fontSize:big?22:hi?15:13,fontWeight:hi||big?800:500,
+      color:big?[C.p0l,C.p1l][i]:hi?C.text:C.muted}}>
+      ${v}${sub&&html`<div style=${{fontSize:10,color:subC?.[i]??C.muted,fontWeight:400}}>${sub[i]}</div>`}
+    </div>`)}
+  </div>`;
+}
+
+// ═══ MODAL ═══════════════════════════════════════════════════════
+
+function Modal({modal,val,setVal,onScore,onCross,onClear,onClose}) {
+  const {pIdx,cat}=modal;
+  const pc=[C.p0,C.p1][pIdx];
+  return html`<div onClick=${onClose} style=${{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',
+    display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:50}}>
+    <div onClick=${e=>e.stopPropagation()} style=${{background:C.surface,borderRadius:'22px 22px 0 0',
+      width:'100%',maxWidth:440,padding:'20px 20px 40px',borderTop:`1px solid ${C.border}`}}>
+      <div style=${{width:36,height:4,background:C.border,borderRadius:2,margin:'0 auto 18px'}} />
+      <div style=${{textAlign:'center',marginBottom:18}}>
+        <div style=${{fontSize:18,fontWeight:800}}>${cat.label}</div>
+        <div style=${{fontSize:12,color:C.muted,marginTop:3}}>
+          ${cat.t==='fix'?`${cat.pts} Punkte bei Erfolg`:cat.t==='super'?'alle Augen × 2 — Endpunktzahl eingeben':'alle Augen zählen'}
+        </div>
+      </div>
+      ${cat.t==='fix'
+        ? html`<div style=${{display:'flex',flexDirection:'column',gap:10}}>
+            <${Btn} onClick=${()=>onScore(cat.pts)} bg="#14532d">✓ Erreicht — ${cat.pts} Punkte</${Btn}>
+            <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
+          </div>`
+        : html`<div style=${{display:'flex',flexDirection:'column',gap:10}}>
+            <input type="number" min="0" value=${val} onChange=${e=>setVal(e.target.value)} autoFocus
+              style=${{background:C.surface2,border:`2px solid ${pc}`,borderRadius:14,
+                padding:'14px',color:C.text,fontSize:24,textAlign:'center',outline:'none',width:'100%'}}
+              placeholder="Punkte" />
+            <${Btn} onClick=${()=>val!==''&&onScore(Number(val))} bg=${pc} disabled=${val===''}>✓ Eintragen</${Btn}>
+            <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
+          </div>`}
+      ${val!==''&&html`<button onClick=${onClear} style=${{background:'none',border:'none',color:C.muted,
+        cursor:'pointer',fontSize:12,marginTop:10,display:'block',width:'100%',textAlign:'center'}}>
+        Eintrag löschen (Feld leeren)
+      </button>`}
+    </div>
+  </div>`;
+}
+
+// ═══ STATS ═══════════════════════════════════════════════════════
+
+function Stats({games,players,tab,setTab,onBack}) {
+  if (!games.length) return html`<div style=${{maxWidth:440,margin:'0 auto',padding:'60px 20px',textAlign:'center'}}>
+    <button onClick=${onBack} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:16,display:'block',marginBottom:32}}>‹ Zurück</button>
+    <div style=${{fontSize:40,marginBottom:12}}>📊</div>
+    <div style=${{color:C.muted}}>Noch keine Spiele gespeichert.</div>
+  </div>`;
+
+  const ps=players.map((name,pi)=>{
+    const pg=games.filter(g=>g.players[pi]);
+    const sc=pg.map(g=>calc(g.players[pi].scores));
+    const tots=sc.map(s=>s.total);
+    const wins=games.filter(g=>{const s=g.players.map(p=>calc(p.scores).total);return pi===0?s[0]>s[1]:s[1]>s[0];}).length;
+    return {name,wins,n:pg.length,
+      avg:tots.length?Math.round(tots.reduce((a,b)=>a+b,0)/tots.length):0,
+      best:tots.length?Math.max(...tots):0,worst:tots.length?Math.min(...tots):0,
+      bonusRate:pg.length?Math.round(sc.filter(s=>s.b>0).length/pg.length*100):0};
+  });
+  const ties=games.filter(g=>{const s=g.players.map(p=>calc(p.scores).total);return s[0]===s[1];}).length;
+
+  const cs=[...UPPER,...LOWER].map(cat=>({cat,p:players.map((_,pi)=>{
+    const entries=games.filter(g=>g.players[pi]).map(g=>g.players[pi].scores[cat.id]).filter(v=>v!==undefined);
+    const ach=entries.filter(v=>v>0);
+    return {played:entries.length,achN:ach.length,rate:entries.length?Math.round(ach.length/entries.length*100):0,
+      avg:ach.length?Math.round(ach.reduce((a,b)=>a+b,0)/ach.length):0};
+  })}));
+
+  const avgDice=UPPER.map(cat=>({
+    label:cat.face, name:cat.label,
+    p0:(()=>{const v=games.filter(g=>g.players[0]?.scores[cat.id]>0).map(g=>Math.round(g.players[0].scores[cat.id]/cat.n));return v.length?+(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):0;})(),
+    p1:(()=>{const v=games.filter(g=>g.players[1]?.scores[cat.id]>0).map(g=>Math.round(g.players[1].scores[cat.id]/cat.n));return v.length?+(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):0;})(),
+  }));
+
+  const hist=games.map((g,i)=>({i:i+1,[players[0]]:calc(g.players[0].scores).total,[players[1]]:calc(g.players[1].scores).total}));
+
+  const TABS=[{id:'overview',l:'Übersicht'},{id:'cats',l:'Kategorien'},{id:'dice',l:'Würfel'}];
+
+  return html`<div style=${{maxWidth:440,margin:'0 auto'}}>
+    <div style=${{position:'sticky',top:0,background:C.bg,zIndex:10,padding:'12px 16px',borderBottom:`1px solid ${C.border}`}}>
+      <div style=${{display:'flex',alignItems:'center',gap:12}}>
+        <button onClick=${onBack} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:20,padding:0}}>‹</button>
+        <span style=${{fontWeight:800,fontSize:18,flex:1}}>Statistiken</span>
+        <span style=${{fontSize:12,color:C.muted2}}>${games.length} Spiele</span>
+      </div>
+      <div style=${{display:'flex',marginTop:10,borderBottom:`1px solid ${C.border}`}}>
+        ${TABS.map(t=>html`<button key=${t.id} onClick=${()=>setTab(t.id)} style=${{
+          flex:1,background:'none',border:'none',cursor:'pointer',padding:'8px 0',fontSize:13,fontWeight:600,
+          color:tab===t.id?C.p0l:C.muted,
+          borderBottom:tab===t.id?`2px solid ${C.p0}`:'2px solid transparent'}}>${t.l}</button>`)}
+      </div>
+    </div>
+    <div style=${{padding:16}}>
+      ${tab==='overview' && html`<div>
+        <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:18}}>
+          ${ps.map((p,i)=>html`<div key=${i} style=${{background:C.surface,borderRadius:16,padding:14,borderTop:`3px solid ${[C.p0,C.p1][i]}`}}>
+            <div style=${{fontSize:12,fontWeight:700,color:[C.p0,C.p1][i],marginBottom:10}}>${p.name}</div>
+            ${[['Siege',`${p.wins}/${p.n}`],['Ø Punkte',p.avg||'—'],['Bestwert',p.best||'—'],['Schlechtester',p.worst||'—'],['Bonus-Rate',`${p.bonusRate}%`]].map(([l,v])=>html`
+              <div style=${{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:`1px solid ${C.border}`}}>
+                <span style=${{fontSize:11,color:C.muted}}>${l}</span>
+                <span style=${{fontSize:12,fontWeight:700}}>${v}</span>
+              </div>`)}
+          </div>`)}
+        </div>
+        <div style=${{background:C.surface,borderRadius:16,padding:14,marginBottom:12}}>
+          <div style=${{fontSize:13,fontWeight:700,marginBottom:8}}>Siege</div>
+          <div style=${{height:130}}>
+            <${ResponsiveContainer} width="100%" height="100%">
+              <${BarChart} data=${[{name:ps[0].name,v:ps[0].wins,fill:C.p0},{name:ps[1].name,v:ps[1].wins,fill:C.p1},...(ties?[{name:'Unentschieden',v:ties,fill:C.muted2}]:[])]}>
+                <${XAxis} dataKey="name" tick=${{fill:C.muted,fontSize:11}} axisLine=${false} tickLine=${false}/>
+                <${YAxis} hide=${true}/>
+                <${Tooltip} contentStyle=${{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10}} cursor=${{fill:'rgba(255,255,255,0.05)'}}/>
+                <${Bar} dataKey="v" name="Siege" radius=${[6,6,0,0]}>
+                  ${[ps[0].wins,ps[1].wins,...(ties?[ties]:[])].map((_,i)=>html`<${Cell} key=${i} fill=${[C.p0,C.p1,C.muted2][i]}/>`)}
+                </${Bar}>
+              </${BarChart}>
+            </${ResponsiveContainer}>
+          </div>
+        </div>
+        ${games.length>1&&html`<div style=${{background:C.surface,borderRadius:16,padding:14}}>
+          <div style=${{fontSize:13,fontWeight:700,marginBottom:8}}>Punktverlauf</div>
+          <div style=${{height:150}}>
+            <${ResponsiveContainer} width="100%" height="100%">
+              <${BarChart} data=${hist} barCategoryGap="20%">
+                <${XAxis} dataKey="i" tick=${{fill:C.muted,fontSize:10}} axisLine=${false} tickLine=${false}/>
+                <${YAxis} hide=${true}/>
+                <${Tooltip} contentStyle=${{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10}} cursor=${{fill:'rgba(255,255,255,0.05)'}}/>
+                <${Bar} dataKey=${players[0]} fill=${C.p0} radius=${[4,4,0,0]}/>
+                <${Bar} dataKey=${players[1]} fill=${C.p1} radius=${[4,4,0,0]}/>
+              </${BarChart}>
+            </${ResponsiveContainer}>
+          </div>
+          <div style=${{display:'flex',gap:16,justifyContent:'center',marginTop:6,fontSize:11,color:C.muted}}>
+            <span><span style=${{color:C.p0}}>■</span> ${players[0]}</span>
+            <span><span style=${{color:C.p1}}>■</span> ${players[1]}</span>
+          </div>
+        </div>`}
+      </div>`}
+      ${tab==='cats' && html`<div>
+        <div style=${{fontSize:12,color:C.muted,marginBottom:12}}>Erreichungsrate und Ø-Punkte (bei Erfolg) pro Kategorie.</div>
+        ${cs.map(({cat,p})=>html`<div key=${cat.id} style=${{background:C.surface,borderRadius:14,padding:'12px 14px',marginBottom:8}}>
+          <div style=${{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+            <span style=${{fontSize:13,fontWeight:700}}>${cat.label}</span>
+            <span style=${{fontSize:10,color:C.muted}}>${cat.t==='fix'?`${cat.pts} Pkt`:cat.t==='super'?'×2':'variabel'}</span>
+          </div>
+          ${p.map((s,i)=>html`<div key=${i} style=${{marginBottom:i===0?8:0}}>
+            <div style=${{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+              <span style=${{fontSize:11,color:[C.p0,C.p1][i]}}>${players[i]}</span>
+              <span style=${{fontSize:11}}>
+                <strong>${s.rate}%</strong>
+                ${cat.t!=='fix'&&s.achN>0?html`<span style=${{color:C.muted}}> · Ø ${s.avg}</span>`:''}
+                <span style=${{color:C.muted2}}> (${s.achN}/${s.played})</span>
+              </span>
+            </div>
+            <div style=${{height:5,background:C.surface2,borderRadius:3,overflow:'hidden'}}>
+              <div style=${{height:5,borderRadius:3,background:[C.p0,C.p1][i],width:`${s.rate}%`,transition:'width 0.4s'}}/>
+            </div>
+          </div>`)}
+        </div>`)}
+      </div>`}
+      ${tab==='dice' && html`<div>
+        <div style=${{background:C.surface,borderRadius:16,padding:14,marginBottom:12}}>
+          <div style=${{fontSize:13,fontWeight:700,marginBottom:4}}>Ø Würfelanzahl pro Seite</div>
+          <div style=${{fontSize:11,color:C.muted,marginBottom:12}}>
+            Wie viele Würfel einer Seite wurden im Schnitt gezeigt, wenn diese Seite im oberen Teil eingetragen wurde.
+          </div>
+          <div style=${{height:170}}>
+            <${ResponsiveContainer} width="100%" height="100%">
+              <${BarChart} data=${avgDice} barCategoryGap="20%">
+                <${XAxis} dataKey="label" tick=${{fill:C.muted,fontSize:18}} axisLine=${false} tickLine=${false}/>
+                <${YAxis} tick=${{fill:C.muted,fontSize:10}} axisLine=${false} tickLine=${false} width=${20}/>
+                <${Tooltip} contentStyle=${{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10}}
+                  cursor=${{fill:'rgba(255,255,255,0.05)'}}
+                  formatter=${(v,n)=>[`Ø ${v} Würfel`,n]}/>
+                <${Bar} dataKey="p0" name=${players[0]} fill=${C.p0} radius=${[4,4,0,0]}/>
+                <${Bar} dataKey="p1" name=${players[1]} fill=${C.p1} radius=${[4,4,0,0]}/>
+              </${BarChart}>
+            </${ResponsiveContainer}>
+          </div>
+          <div style=${{display:'flex',gap:16,justifyContent:'center',marginTop:6,fontSize:11,color:C.muted}}>
+            <span><span style=${{color:C.p0}}>■</span> ${players[0]}</span>
+            <span><span style=${{color:C.p1}}>■</span> ${players[1]}</span>
+          </div>
+        </div>
+        <div style=${{fontSize:11,color:C.muted2,textAlign:'center'}}>
+          * Gestrichene Felder fließen nicht in die Würfelstatistik ein.
+        </div>
+      </div>`}
+    </div>
+  </div>`;
+}
+
+// ═══ SHARED ══════════════════════════════════════════════════════
+
+function Btn({onClick,bg,border,children,disabled}) {
+  return html`<button onClick=${onClick} disabled=${disabled} style=${{
+    width:'100%',padding:'13px 16px',borderRadius:14,
+    border:border?`1px solid ${border}`:'none',
+    background:disabled?C.muted2:bg,color:'white',fontSize:15,fontWeight:700,
+    cursor:disabled?'not-allowed':'pointer',display:'flex',
+    alignItems:'center',justifyContent:'center',gap:8,opacity:disabled?0.5:1,
+  }}>${children}</button>`;
+}
+
+// ═══ BOOT ════════════════════════════════════════════════════════
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+createRoot(document.getElementById('root')).render(html`<${App}/>`);
+</script>
+</body>
+</html>
