@@ -323,13 +323,13 @@ function GhSettings({initial,onSave,onBack}) {
     <div style=${{background:C.surface,borderRadius:14,padding:14,marginBottom:18,
       fontSize:12,color:C.muted,lineHeight:1.7,border:`1px solid ${C.border}`}}>
       Speichere Spiele in GitHub und greife von jedem Gerät darauf zu.<br/>
-      <strong style=${{color:C.p0l}}>1.</strong> Erstelle ein <strong style=${{color:C.text}}>privates</strong> Repo auf GitHub, z.B. <code style=${{color:C.p0l}}>kniffel-data</code><br/>
+      <strong style=${{color:C.p0l}}>1.</strong> Erstelle ein <strong style=${{color:C.text}}>privates</strong> Repo auf GitHub, z.B. <code style=${{color:C.p0l}}>yahtzee-data</code><br/>
       <strong style=${{color:C.p0l}}>2.</strong> Gehe zu <em>Settings → Developer settings → Personal access tokens → Tokens (classic)</em> → neues Token mit <code style=${{color:C.p0l}}>repo</code>-Berechtigung<br/>
       <strong style=${{color:C.p0l}}>3.</strong> Token, Nutzername und Repo-Name unten eintragen
     </div>
     <${F} label="Personal Access Token" val=${token} set=${setToken} type="password" ph="ghp_..." />
     <${F} label="GitHub-Nutzername" val=${owner} set=${setOwner} ph="dein-username" />
-    <${F} label="Repository-Name" val=${repo} set=${setRepo} ph="kniffel-data" />
+    <${F} label="Repository-Name" val=${repo} set=${setRepo} ph="yahtzee-data" />
     <div style=${{display:'flex',gap:10,marginTop:4}}>
       <button onClick=${test} disabled=${testing||!token||!owner||!repo}
         style=${{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,

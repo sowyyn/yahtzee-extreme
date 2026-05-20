@@ -1,4 +1,4 @@
-const CACHE = 'kniffel-v2';
+const CACHE = 'yahtzee-extreme-v1';
 
 // Pre-cache only local files; CDN files get cached on first use
 const LOCAL = ['./', './index.html', './manifest.json', './icon.svg'];
