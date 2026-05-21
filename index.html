@@ -124,13 +124,14 @@ async function ghRead(cfg) {
   return {data:JSON.parse(atob(j.content.replace(/\n/g,''))), sha:j.sha};
 }
 async function ghWrite(cfg,data,sha) {
+  const url=`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/gamedata.json`;
   const body={message:'Kniffel update',content:btoa(unescape(encodeURIComponent(JSON.stringify(data,null,2))))};
   if (sha) body.sha=sha;
-  const r = await fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/gamedata.json`,
+  const r = await fetch(url,
     {method:'PUT',headers:{...ghHeaders(cfg.token),'Content-Type':'application/json'},body:JSON.stringify(body)});
   if (!r.ok) {
     const j = await r.json().catch(()=>({}));
-    throw new Error(`GitHub ${r.status}: ${j.message||'Unbekannter Fehler'}`);
+    throw new Error(`GitHub ${r.status} (${cfg.owner}/${cfg.repo}): ${j.message||'?'}`);
   }
   return (await r.json()).content.sha;
 }
@@ -166,7 +167,8 @@ function App() {
   },[]);
 
   const doSync = async cfg => {
-    const c=cfg||ghCfg; if (!c?.token) return;
+    const c = cfg || ls('kx:gh', null);
+    if (!c?.token) return;
     setSyncSt('syncing');
     try {
       const {data,sha}=await ghRead(c);
@@ -180,10 +182,10 @@ function App() {
     } catch(e) { setSyncSt('error'); setSyncMsg(e.message); }
   };
   const pushGh = async (g,r) => {
-    const c=ghCfg; if (!c?.token) return;
+    const c = ls('kx:gh', null); // direkt aus localStorage — kein Closure-Problem
+    if (!c?.token) return;
     setSyncSt('syncing');
     try {
-      // Always fetch current SHA first — handles new file AND existing file correctly
       const {sha} = await ghRead(c);
       const newSha = await ghWrite(c,{version:1,roster:r,games:g},sha);
       lsSet('kx:gh_sha',newSha);
@@ -925,19 +927,30 @@ function GhSettings({initial,onSave,onBack}) {
   const test=async()=>{
     setTesting(true);setRes(null);
     try{
+      // Test 1: Repo erreichbar + Token-Scopes prüfen
       const r=await fetch(`https://api.github.com/repos/${owner}/${repo}`,
-        {headers:{Authorization:`token ${token}`}});
-      if (r.ok) {
-        const scopes=r.headers.get('X-OAuth-Scopes')||'';
-        const hasRepo=scopes.includes('repo');
-        setRes({ok:hasRepo,
-          msg: hasRepo
-            ? `✓ Verbindung ok! Berechtigung: ${scopes}`
-            : `⚠ Verbunden, aber Token fehlt "repo"-Berechtigung!\nAktuelle Scopes: "${scopes||'keine'}"\nBitte Token neu erstellen mit "repo"-Haken.`});
+        {headers:{Authorization:`token ${token}`, Accept:'application/vnd.github.v3+json'}});
+      if (!r.ok) { setRes({ok:false,msg:`Fehler ${r.status}: Repo nicht gefunden oder kein Zugriff.`}); setTesting(false); return; }
+      const scopes=r.headers.get('X-OAuth-Scopes')||'';
+
+      // Test 2: Schreibzugriff testen
+      const testContent=btoa(JSON.stringify({test:true,time:Date.now()}));
+      const wr=await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.kniffel-writetest`,
+        {method:'PUT', headers:{Authorization:`token ${token}`, 'Content-Type':'application/json', Accept:'application/vnd.github.v3+json'},
+         body:JSON.stringify({message:'write test',content:testContent})});
+
+      if (wr.ok) {
+        const wj=await wr.json();
+        // Testdatei wieder löschen
+        await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.kniffel-writetest`,
+          {method:'DELETE', headers:{Authorization:`token ${token}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},
+           body:JSON.stringify({message:'cleanup',sha:wj.content.sha})}).catch(()=>{});
+        setRes({ok:true,msg:`✓ Lesen & Schreiben funktioniert!\nScopes: ${scopes}`});
       } else {
-        setRes({ok:false,msg:`Fehler ${r.status}: Repo nicht gefunden oder kein Zugriff.`});
+        const wj=await wr.json().catch(()=>({}));
+        setRes({ok:false,msg:`Lesen OK, aber Schreiben schlägt fehl!\nStatus: ${wr.status}\nGitHub: ${wj.message||'?'}\nScopes: ${scopes}`});
       }
-    } catch{setRes({ok:false,msg:'Netzwerkfehler.'});}
+    } catch(e){setRes({ok:false,msg:`Fehler: ${e.message}`});}
     setTesting(false);
   };
   const F=({label,val,set,type='text',ph})=>html`<div style=${{marginBottom:12}}>
