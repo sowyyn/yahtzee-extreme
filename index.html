@@ -59,18 +59,13 @@ const LOWER = [
 ];
 const ALL_IDS = [...UPPER.map(c=>c.id), ...LOWER.map(c=>c.id)];
 
-// Version wird automatisch aus sw.js gelesen
+// Version direkt aus dem Cache Storage lesen — kein SW-Kommunikation nötig
 async function getSwVersion() {
-  if (!('serviceWorker' in navigator)) return '?';
+  if (!('caches' in window)) return '?';
   try {
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg?.active) return '?';
-    return new Promise(resolve => {
-      const ch = new MessageChannel();
-      ch.port1.onmessage = e => resolve(e.data?.version || '?');
-      reg.active.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
-      setTimeout(() => resolve('?'), 1000); // fallback
-    });
+    const keys = await caches.keys();
+    const key = keys.find(k => k.startsWith('yahtzee-extreme-v'));
+    return key ? key.replace('yahtzee-extreme-v', '') : '?';
   } catch { return '?'; }
 }
 
@@ -206,7 +201,7 @@ function App() {
   };
 
   const syncBadge = html`<span style=${{fontSize:11,color:syncSt==='ok'?C.green:syncSt==='error'?C.red:C.muted}}>
-    ${syncSt==='syncing'?'↻ Sync…':syncSt==='ok'?`☁ ${syncMsg}`:syncSt==='error'?'⚠ Sync-Fehler':''}
+    ${syncSt==='syncing'?'↻ Sync…':syncSt==='ok'?`☁ ${syncMsg}`:syncSt==='error'?`⚠ ${syncMsg}`:''}
   </span>`;
 
   return html`<div style=${{minHeight:'100vh',background:C.bg,color:C.text}}>
