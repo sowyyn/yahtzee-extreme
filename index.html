@@ -146,10 +146,12 @@ function App() {
     } catch(e) { setSyncSt('error'); setSyncMsg(e.message); }
   };
   const pushGh = async (g,r) => {
-    if (!ghCfg?.token) return; setSyncSt('syncing');
+    const c=ghCfg; if (!c?.token) return;
+    setSyncSt('syncing');
     try {
-      const sha=ls('kx:gh_sha',null);
-      const newSha=await ghWrite(ghCfg,{version:1,roster:r,games:g},sha);
+      // Always fetch current SHA first — handles new file AND existing file correctly
+      const {sha} = await ghRead(c);
+      const newSha = await ghWrite(c,{version:1,roster:r,games:g},sha);
       lsSet('kx:gh_sha',newSha);
       setSyncSt('ok'); setSyncMsg(new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
     } catch(e) { setSyncSt('error'); setSyncMsg(e.message); }
@@ -509,7 +511,7 @@ function Stats({games,roster,tab,setTab,selPlayer,setSelPlayer,cmp,setCmp,onBack
       catData,avgDice,tots};
   }).filter(p=>p.n>0);
 
-  const TABS=[{id:'leaderboard',l:'Rangliste'},{id:'player',l:'Spieler'},{id:'compare',l:'Vergleich'},{id:'dice',l:'Würfel'}];
+  const TABS=[{id:'leaderboard',l:'Rangliste'},{id:'player',l:'Spieler'},{id:'compare',l:'Vergleich'},{id:'dice',l:'Würfel'},{id:'gesamt',l:'Gesamt'}];
   const selP=selPlayer||playerStats[0]?.name;
   const selSt=playerStats.find(p=>p.name===selP);
 
@@ -713,6 +715,77 @@ function Stats({games,roster,tab,setTab,selPlayer,setSelPlayer,cmp,setCmp,onBack
           </div>
         </div>`}
       </div>`}
+
+      ${tab==='gesamt' && (()=>{
+        // Aggregate category stats across ALL players and ALL games
+        const allCatStats = [...UPPER,...LOWER].map(cat=>{
+          const entries = games.flatMap(g=>g.players.map(p=>p.scores[cat.id]).filter(v=>v!==undefined));
+          const achieved = entries.filter(v=>v>0);
+          return {
+            id:cat.id, label:cat.label, t:cat.t, pts:cat.pts,
+            played:entries.length, achN:achieved.length,
+            rate:entries.length?Math.round(achieved.length/entries.length*100):0,
+            avg:achieved.length?Math.round(achieved.reduce((a,b)=>a+b,0)/achieved.length):0,
+          };
+        }).filter(c=>c.played>0);
+
+        const totalEntries  = allCatStats.reduce((s,c)=>s+c.played,0);
+        const totalAchieved = allCatStats.reduce((s,c)=>s+c.achN,0);
+        const overallRate   = totalEntries?Math.round(totalAchieved/totalEntries*100):0;
+        const totalPlayers  = [...new Set(games.flatMap(g=>g.players.map(p=>p.name)))].length;
+
+        return html`<div>
+          <!-- Summary card -->
+          <div style=${{background:C.surface,borderRadius:16,padding:14,marginBottom:14,
+            display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'center'}}>
+            ${[['Spiele',games.length],['Spieler',totalPlayers],['Ø Erreichung',overallRate+'%']].map(([l,v])=>html`
+              <div style=${{background:C.surface2,borderRadius:12,padding:'10px 6px'}}>
+                <div style=${{fontSize:10,color:C.muted,marginBottom:4}}>${l}</div>
+                <div style=${{fontSize:18,fontWeight:900,color:PCL[0]}}>${v}</div>
+              </div>`)}
+          </div>
+
+          <div style=${{fontSize:12,color:C.muted,marginBottom:12}}>
+            Erreichungsrate und Ø-Punkte aller Spieler zusammen.
+          </div>
+
+          <!-- Category bars -->
+          ${allCatStats.map(c=>html`<div key=${c.id} style=${{background:C.surface,borderRadius:14,padding:'11px 14px',marginBottom:8}}>
+            <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <span style=${{fontSize:13,fontWeight:700}}>${c.label}</span>
+              <span style=${{fontSize:11}}>
+                <strong style=${{color:c.rate>=70?C.green:c.rate>=40?PCL[3]:PCL[1]}}>${c.rate}%</strong>
+                ${c.t!=='fix'&&c.avg>0?html`<span style=${{color:C.muted}}> · Ø ${c.avg} Pkt</span>`:''}
+                <span style=${{color:C.muted2}}> (${c.achN}/${c.played})</span>
+              </span>
+            </div>
+            <div style=${{height:6,background:C.surface2,borderRadius:3,overflow:'hidden'}}>
+              <div style=${{height:6,borderRadius:3,transition:'width 0.4s',width:`${c.rate}%`,
+                background:c.rate>=70?C.green:c.rate>=40?PC[3]:PC[1]}}/>
+            </div>
+          </div>`)}
+
+          <!-- Top 3 / Bottom 3 -->
+          <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:16}}>
+            <div style=${{background:C.surface,borderRadius:14,padding:12}}>
+              <div style=${{fontSize:12,fontWeight:700,color:C.green,marginBottom:8}}>🏆 Top Kategorien</div>
+              ${[...allCatStats].sort((a,b)=>b.rate-a.rate).slice(0,3).map((c,i)=>html`
+                <div key=${c.id} style=${{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:`1px solid ${C.border}`}}>
+                  <span style=${{fontSize:11,color:C.muted}}>${c.label}</span>
+                  <span style=${{fontSize:11,fontWeight:700,color:C.green}}>${c.rate}%</span>
+                </div>`)}
+            </div>
+            <div style=${{background:C.surface,borderRadius:14,padding:12}}>
+              <div style=${{fontSize:12,fontWeight:700,color:PC[1],marginBottom:8}}>📉 Schwerste</div>
+              ${[...allCatStats].sort((a,b)=>a.rate-b.rate).slice(0,3).map((c,i)=>html`
+                <div key=${c.id} style=${{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:`1px solid ${C.border}`}}>
+                  <span style=${{fontSize:11,color:C.muted}}>${c.label}</span>
+                  <span style=${{fontSize:11,fontWeight:700,color:PC[1]}}>${c.rate}%</span>
+                </div>`)}
+            </div>
+          </div>
+        </div>`;
+      })()}
 
     </div>
   </div>`;
