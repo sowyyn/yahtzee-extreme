@@ -121,7 +121,12 @@ async function ghRead(cfg) {
     throw new Error(`GitHub ${r.status}: ${j.message||'Unbekannter Fehler'}`);
   }
   const j = await r.json();
-  return {data:JSON.parse(atob(j.content.replace(/\n/g,''))), sha:j.sha};
+  try {
+    const data = JSON.parse(atob(j.content.replace(/\n/g,'')));
+    return {data, sha:j.sha};
+  } catch {
+    return {data:null, sha:j.sha}; // Ungültiges JSON → wie leer behandeln, SHA behalten
+  }
 }
 async function ghWrite(cfg,data,sha) {
   const url=`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/gamedata.json`;
@@ -927,28 +932,37 @@ function GhSettings({initial,onSave,onBack}) {
   const test=async()=>{
     setTesting(true);setRes(null);
     try{
-      // Test 1: Repo erreichbar + Token-Scopes prüfen
+      // Wem gehört das Token?
+      const ur=await fetch('https://api.github.com/user',
+        {headers:{Authorization:`token ${token}`, Accept:'application/vnd.github.v3+json'}});
+      const uj=await ur.json().catch(()=>({}));
+      const tokenOwner=uj.login||'unbekannt';
+      const scopes=ur.headers.get('X-OAuth-Scopes')||'';
+
+      if (tokenOwner!==owner) {
+        setRes({ok:false,msg:`⚠ Token gehört dem Account "${tokenOwner}", nicht "${owner}"!\n\nBitte auf GitHub als "${owner}" einloggen und dort ein neues Token erstellen.`});
+        setTesting(false); return;
+      }
+
+      // Repo erreichbar?
       const r=await fetch(`https://api.github.com/repos/${owner}/${repo}`,
         {headers:{Authorization:`token ${token}`, Accept:'application/vnd.github.v3+json'}});
-      if (!r.ok) { setRes({ok:false,msg:`Fehler ${r.status}: Repo nicht gefunden oder kein Zugriff.`}); setTesting(false); return; }
-      const scopes=r.headers.get('X-OAuth-Scopes')||'';
+      if (!r.ok) { setRes({ok:false,msg:`Fehler ${r.status}: Repo nicht gefunden.`}); setTesting(false); return; }
 
-      // Test 2: Schreibzugriff testen
+      // Schreibzugriff testen
       const testContent=btoa(JSON.stringify({test:true,time:Date.now()}));
       const wr=await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.kniffel-writetest`,
-        {method:'PUT', headers:{Authorization:`token ${token}`, 'Content-Type':'application/json', Accept:'application/vnd.github.v3+json'},
+        {method:'PUT', headers:{Authorization:`token ${token}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},
          body:JSON.stringify({message:'write test',content:testContent})});
-
       if (wr.ok) {
         const wj=await wr.json();
-        // Testdatei wieder löschen
         await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.kniffel-writetest`,
-          {method:'DELETE', headers:{Authorization:`token ${token}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},
+          {method:'DELETE',headers:{Authorization:`token ${token}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},
            body:JSON.stringify({message:'cleanup',sha:wj.content.sha})}).catch(()=>{});
-        setRes({ok:true,msg:`✓ Lesen & Schreiben funktioniert!\nScopes: ${scopes}`});
+        setRes({ok:true,msg:`✓ Alles ok! Token von "${tokenOwner}", Scopes: ${scopes}`});
       } else {
         const wj=await wr.json().catch(()=>({}));
-        setRes({ok:false,msg:`Lesen OK, aber Schreiben schlägt fehl!\nStatus: ${wr.status}\nGitHub: ${wj.message||'?'}\nScopes: ${scopes}`});
+        setRes({ok:false,msg:`Token von "${tokenOwner}" — Lesen OK aber Schreiben fehlschlägt!\nStatus: ${wr.status}: ${wj.message||'?'}`});
       }
     } catch(e){setRes({ok:false,msg:`Fehler: ${e.message}`});}
     setTesting(false);
