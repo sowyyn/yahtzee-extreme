@@ -40,22 +40,38 @@ const UPPER = [
   { id:'sechser', label:'Sechser', face:'⚅', n:6 },
 ];
 const LOWER = [
-  { id:'dreierpasch',      label:'Dreierpasch',     t:'var',  desc:'alle Augen' },
-  { id:'viererpasch',      label:'Viererpasch',     t:'var',  desc:'alle Augen' },
-  { id:'zweiPaare',        label:'Zwei Paare',      t:'var',  desc:'alle Augen' },
-  { id:'dreiPaare',        label:'Drei Paare',      t:'fix',  pts:35 },
-  { id:'zweiDreier',       label:'Zwei Dreier',     t:'fix',  pts:45 },
-  { id:'fullHouse',        label:'Full-House',      t:'fix',  pts:25 },
-  { id:'grossesFullHouse', label:'Gr. Full-House',  t:'fix',  pts:45 },
-  { id:'kleineStrasse',    label:'Kl. Straße',      t:'fix',  pts:30 },
-  { id:'grosseStrasse',    label:'Gr. Straße',      t:'fix',  pts:40 },
-  { id:'highway',          label:'Highway',         t:'fix',  pts:50 },
-  { id:'kniffel',          label:'Kniffel',         t:'fix',  pts:50 },
-  { id:'kniffelExtreme',   label:'Kniffel Xtreme',  t:'fix',  pts:75 },
-  { id:'zehnMinus',        label:'10 oder weniger', t:'fix',  pts:40 },
-  { id:'dreiDreissig',     label:'33 oder mehr',    t:'fix',  pts:40 },
-  { id:'chance',           label:'Chance',          t:'var',  desc:'alle Augen' },
-  { id:'superChance',      label:'Super Chance',    t:'super',desc:'Augen × 2' },
+  { id:'dreierpasch',      label:'Dreierpasch',     t:'var',  desc:'alle Augen',
+    rules:'Mindestens 3 gleiche Zahlen. Alle Augen des Wurfes zählen.' },
+  { id:'viererpasch',      label:'Viererpasch',     t:'var',  desc:'alle Augen',
+    rules:'Mindestens 4 gleiche Zahlen. Alle Augen des Wurfes zählen.' },
+  { id:'zweiPaare',        label:'Zwei Paare',      t:'var',  desc:'alle Augen',
+    rules:'Zwei verschiedene Zahlenpaare. Alle Augen des Wurfes zählen.' },
+  { id:'dreiPaare',        label:'Drei Paare',      t:'fix',  pts:35,
+    rules:'Drei verschiedene Zahlenpaare → 35 Punkte.' },
+  { id:'zweiDreier',       label:'Zwei Dreier',     t:'fix',  pts:45,
+    rules:'Zwei verschiedene Drillinge (z.B. drei 4er und drei 6er) → 45 Punkte.' },
+  { id:'fullHouse',        label:'Full-House',      t:'fix',  pts:25,
+    rules:'3 gleiche + 2 gleiche andere Zahlen (z.B. 4,4,4,3,3,?) → 25 Punkte.' },
+  { id:'grossesFullHouse', label:'Gr. Full-House',  t:'fix',  pts:45,
+    rules:'4 gleiche + 2 gleiche andere Zahlen → 45 Punkte.' },
+  { id:'kleineStrasse',    label:'Kl. Straße',      t:'fix',  pts:30,
+    rules:'4 aufeinanderfolgende Zahlen, die 2 anderen egal (z.B. 1,2,3,4,3,9) → 30 Punkte.' },
+  { id:'grosseStrasse',    label:'Gr. Straße',      t:'fix',  pts:40,
+    rules:'5 aufeinanderfolgende Zahlen, der 6. egal (z.B. 2,3,4,5,6,3) → 40 Punkte.' },
+  { id:'highway',          label:'Highway',         t:'fix',  pts:50,
+    rules:'6 aufeinanderfolgende Zahlen (z.B. 0,1,2,3,4,5) → 50 Punkte.' },
+  { id:'kniffel',          label:'Kniffel',         t:'fix',  pts:50,
+    rules:'5 gleiche Zahlen → 50 Punkte.' },
+  { id:'kniffelExtreme',   label:'Kniffel Xtreme',  t:'fix',  pts:75,
+    rules:'6 gleiche Zahlen → 75 Punkte.' },
+  { id:'zehnMinus',        label:'10 oder weniger', t:'fix',  pts:40,
+    rules:'Summe aller 6 Würfel ≤ 10 → 40 Punkte.' },
+  { id:'dreiDreissig',     label:'33 oder mehr',    t:'fix',  pts:40,
+    rules:'Summe aller 6 Würfel ≥ 33 → 40 Punkte.' },
+  { id:'chance',           label:'Chance',          t:'var',  desc:'alle Augen',
+    rules:'Beliebiger Wurf. Alle Augen aller 6 Würfel zählen.' },
+  { id:'superChance',      label:'Super Chance',    t:'super',desc:'Augen × 2',
+    rules:'Beliebiger Wurf. Alle Augen werden addiert und verdoppelt.' },
 ];
 const ALL_IDS = [...UPPER.map(c=>c.id), ...LOWER.map(c=>c.id)];
 
@@ -178,15 +194,22 @@ function App() {
     const newRoster = [...new Set([...roster,...selectedPlayers])];
     saveRoster(newRoster);
     saveCur({id:Date.now().toString(), date:new Date().toLocaleDateString('de-DE'),
-      players:selectedPlayers.map(name=>({name,scores:{}}))});
+      players:selectedPlayers.map(name=>({name,scores:{},chips:3}))});
     setScreen('game');
   };
   const finishGame = () => { const ng=[...games,cur]; saveGames(ng,roster); saveCur(null); setScreen('home'); };
+  const useChip = (pIdx) => {
+    if (cur.players[pIdx].chips<=0) return;
+    saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,chips:p.chips-1}:p)});
+  };
 
   const openCell = (pIdx,cat) => {
     setModal({pIdx,cat});
     const v=cur.players[pIdx].scores[cat.id];
-    setMVal(v!==undefined?String(v):'');
+    const isUpper=UPPER.some(u=>u.id===cat.id);
+    // For upper section, store/show count (not total). Derive count from stored score.
+    if (v!==undefined && isUpper) setMVal(String(Math.round(v/cat.n)));
+    else setMVal(v!==undefined?String(v):'');
   };
   const enterScore = val => {
     const {pIdx,cat}=modal;
@@ -208,7 +231,7 @@ function App() {
     ${screen==='home'     && html`<${Home}       ...${{games,roster,cur,syncBadge,appVersion,onNew:()=>setScreen('gameSetup'),onContinue:()=>setScreen('game'),onStats:()=>setScreen('stats'),onGh:()=>setScreen('gh')}} />`}
     ${screen==='gameSetup'&& html`<${GameSetup}  roster=${roster} onStart=${startGame} onBack=${()=>setScreen('home')} />`}
     ${screen==='game' && cur && html`
-      <${Game} ...${{game:cur,roster,onCell:openCell,onFinish:finishGame,onBack:()=>setScreen('home')}} />
+      <${Game} ...${{game:cur,roster,onCell:openCell,onFinish:finishGame,onChipUse:useChip,onBack:()=>setScreen('home')}} />
       ${modal && html`<${Modal} ...${{modal,roster,val:mVal,setVal:setMVal,onScore:enterScore,onCross:()=>enterScore(0),onClear:clearCell,onClose:()=>setModal(null)}} />`}
     `}
     ${screen==='stats'    && html`<${Stats}       ...${{games,roster,tab:stab,setTab:setStab,selPlayer:sPlayer,setSelPlayer:setSPlayer,cmp:sCmp,setCmp:setSCmp,onDeleteGame:deleteGame,onBack:()=>setScreen('home')}} />`}
@@ -337,7 +360,7 @@ function GameSetup({roster,onStart,onBack}) {
 
 // ═══ GAME ════════════════════════════════════════════════════════
 
-function Game({game,roster,onCell,onFinish,onBack}) {
+function Game({game,roster,onCell,onFinish,onChipUse,onBack}) {
   const n   = game.players.length;
   const sc  = game.players.map(p=>calc(p.scores));
   const cw  = colW(n);
@@ -373,6 +396,13 @@ function Game({game,roster,onCell,onFinish,onBack}) {
           <div style=${{fontSize:22,fontWeight:900,color:pColL(i)}}>${scoresVisible?sc[i].total:'??'}</div>
           <div style=${{fontSize:9,color:C.muted}}>
             ${scoresVisible?(sc[i].b?html`<span style=${{color:C.green}}>✓ Bonus</span>`:html`<span>−${73-sc[i].u}</span>`):'—'}
+          </div>
+          <div style=${{display:'flex',gap:3,marginTop:4}}>
+            ${[0,1,2].map(ci=>html`<button key=${ci} onClick=${()=>ci<(p.chips??3)&&onChipUse(i)}
+              title=${ci<(p.chips??3)?'Chip verwenden':'aufgebraucht'}
+              style=${{width:14,height:14,borderRadius:'50%',border:'none',cursor:ci<(p.chips??3)?'pointer':'default',
+                background:ci<(p.chips??3)?pCol(i):'#2a2448',padding:0,flexShrink:0}}/>
+            `)}
           </div>
         </div>`)}
       </div>
@@ -463,30 +493,72 @@ function Modal({modal,roster,val,setVal,onScore,onCross,onClear,onClose}) {
   const {pIdx,cat}=modal;
   const pName=modal.cat&&window._curGame?.players[pIdx]?.name;
   const pc=pColor(pName,roster)||PC[pIdx%5];
+  const isUpper = UPPER.some(u=>u.id===cat.id);
+  const count   = isUpper ? (val===''?0:Number(val)) : null;
+  const computed = isUpper ? count*cat.n : null;
+
   return html`<div onClick=${onClose} style=${{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',
     display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:50}}>
     <div onClick=${e=>e.stopPropagation()} style=${{background:C.surface,borderRadius:'22px 22px 0 0',
       width:'100%',maxWidth:460,padding:'20px 20px 40px',borderTop:`1px solid ${C.border}`}}>
       <div style=${{width:36,height:4,background:C.border,borderRadius:2,margin:'0 auto 18px'}}/>
-      <div style=${{textAlign:'center',marginBottom:18}}>
-        <div style=${{fontSize:18,fontWeight:800}}>${cat.label}</div>
-        <div style=${{fontSize:12,color:C.muted,marginTop:3}}>
-          ${cat.t==='fix'?`${cat.pts} Punkte bei Erfolg`:cat.t==='super'?'alle Augen × 2 — Endpunktzahl eingeben':'alle Augen zählen'}
-        </div>
+
+      <!-- Title -->
+      <div style=${{textAlign:'center',marginBottom:12}}>
+        <div style=${{fontSize:20,fontWeight:800}}>${isUpper?cat.face+' ':''} ${cat.label}</div>
+        ${cat.rules && html`<div style=${{fontSize:12,color:C.muted,marginTop:6,lineHeight:1.5,
+          background:C.surface2,borderRadius:10,padding:'8px 12px',textAlign:'left'}}>
+          📖 ${cat.rules}
+        </div>`}
       </div>
-      ${cat.t==='fix'
-        ?html`<div style=${{display:'flex',flexDirection:'column',gap:10}}>
-            <${Btn} onClick=${()=>onScore(cat.pts)} bg="#14532d">✓ Erreicht — ${cat.pts} Punkte</${Btn}>
-            <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
-          </div>`
-        :html`<div style=${{display:'flex',flexDirection:'column',gap:10}}>
-            <input type="number" min="0" value=${val} onChange=${e=>setVal(e.target.value)} autoFocus
-              style=${{background:C.surface2,border:`2px solid ${pc}`,borderRadius:14,
-                padding:'14px',color:C.text,fontSize:24,textAlign:'center',outline:'none',width:'100%'}} placeholder="Punkte"/>
-            <${Btn} onClick=${()=>val!==''&&onScore(Number(val))} bg=${pc} disabled=${val===''}>✓ Eintragen</${Btn}>
-            <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
-          </div>`}
-      ${val!==''&&html`<button onClick=${onClear} style=${{background:'none',border:'none',color:C.muted,
+
+      <!-- UPPER: Stepper (wie viele Würfel) -->
+      ${isUpper && html`<div style=${{display:'flex',flexDirection:'column',gap:12,marginTop:4}}>
+        <div style=${{fontSize:12,color:C.muted,textAlign:'center'}}>Wie viele ${cat.label} hast du gewürfelt?</div>
+        <div style=${{display:'flex',alignItems:'center',justifyContent:'center',gap:16}}>
+          <button onClick=${()=>setVal(String(Math.max(0,(val===''?0:Number(val))-1)))}
+            style=${{width:48,height:48,borderRadius:'50%',background:C.surface2,border:`1px solid ${C.border}`,
+              color:C.text,fontSize:24,cursor:'pointer',fontWeight:700}}>−</button>
+          <div style=${{textAlign:'center',minWidth:60}}>
+            <div style=${{fontSize:40,fontWeight:900,color:pc}}>${val===''?0:val}</div>
+            <div style=${{fontSize:11,color:C.muted}}>Würfel</div>
+          </div>
+          <button onClick=${()=>setVal(String(Math.min(6,(val===''?0:Number(val))+1)))}
+            style=${{width:48,height:48,borderRadius:'50%',background:C.surface2,border:`1px solid ${C.border}`,
+              color:C.text,fontSize:24,cursor:'pointer',fontWeight:700}}>+</button>
+        </div>
+        <div style=${{textAlign:'center',fontSize:18,fontWeight:700,color:pc}}>
+          = ${computed} Punkte
+        </div>
+        <${Btn} onClick=${()=>onScore(computed)} bg=${pc} disabled=${count===0}>
+          ✓ Eintragen — ${computed} Punkte
+        </${Btn}>
+        <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
+      </div>`}
+
+      <!-- FIXED LOWER: Erreicht/Streichen -->
+      ${!isUpper && cat.t==='fix' && html`<div style=${{display:'flex',flexDirection:'column',gap:10}}>
+        <${Btn} onClick=${()=>onScore(cat.pts)} bg="#14532d">✓ Erreicht — ${cat.pts} Punkte</${Btn}>
+        <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
+      </div>`}
+
+      <!-- VARIABLE LOWER: Number input -->
+      ${!isUpper && cat.t!=='fix' && html`<div style=${{display:'flex',flexDirection:'column',gap:10}}>
+        <div style=${{fontSize:12,color:C.muted,textAlign:'center'}}>
+          ${cat.t==='super'?'Endpunktzahl eingeben (Augen × 2)':'Summe aller Augen eingeben'}
+        </div>
+        <input type="number" min="0" value=${val} onChange=${e=>setVal(e.target.value)} autoFocus
+          style=${{background:C.surface2,border:`2px solid ${pc}`,borderRadius:14,
+            padding:'14px',color:C.text,fontSize:24,textAlign:'center',outline:'none',width:'100%'}}
+          placeholder="Punkte"/>
+        <${Btn} onClick=${()=>val!==''&&onScore(Number(val))} bg=${pc} disabled=${val===''}>✓ Eintragen</${Btn}>
+        <${Btn} onClick=${onCross} bg="#7f1d1d">✕ Streichen — 0 Punkte</${Btn}>
+      </div>`}
+
+      ${val!==''&&!isUpper&&html`<button onClick=${onClear} style=${{background:'none',border:'none',color:C.muted,
+        cursor:'pointer',fontSize:12,marginTop:10,display:'block',width:'100%',textAlign:'center'}}>
+        Eintrag löschen</button>`}
+      ${isUpper&&(val!==''&&Number(val)>0)&&html`<button onClick=${onClear} style=${{background:'none',border:'none',color:C.muted,
         cursor:'pointer',fontSize:12,marginTop:10,display:'block',width:'100%',textAlign:'center'}}>
         Eintrag löschen</button>`}
     </div>
