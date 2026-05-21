@@ -1,4 +1,11 @@
-const CACHE = 'yahtzee-extreme-v4'; // ⬆️ Bei jedem Update hochzählen: v2 → v3 → v4 ...
+const CACHE = 'yahtzee-extreme-v3'; // ⬆️ Bei jedem Update hochzählen: v3 → v4 → v5 ...
+
+// Version an die App weitergeben
+self.addEventListener('message', e => {
+  if (e.data?.type === 'GET_VERSION') {
+    e.ports[0].postMessage({ version: CACHE.replace('yahtzee-extreme-v', '') });
+  }
+});
 
 // Pre-cache only local files; CDN files get cached on first use
 const LOCAL = ['./', './index.html', './manifest.json', './icon.svg'];
