@@ -199,8 +199,9 @@ function App() {
   };
   const finishGame = () => { const ng=[...games,cur]; saveGames(ng,roster); saveCur(null); setScreen('home'); };
   const useChip = (pIdx) => {
-    if (cur.players[pIdx].chips<=0) return;
-    saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,chips:p.chips-1}:p)});
+    const chips = cur.players[pIdx].chips ?? 3;
+    if (chips <= 0) return;
+    saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,chips:chips-1}:p)});
   };
 
   const openCell = (pIdx,cat) => {
