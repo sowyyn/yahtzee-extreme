@@ -216,6 +216,9 @@ function App() {
     if (chips <= 0) return;
     saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,chips:chips-1}:p)});
   };
+  const resetChip = (pIdx) => {
+    saveCur({...cur,players:cur.players.map((p,i)=>i===pIdx?{...p,chips:3}:p)});
+  };
 
   const openCell = (pIdx,cat) => {
     setModal({pIdx,cat});
@@ -245,7 +248,7 @@ function App() {
     ${screen==='home'     && html`<${Home}       ...${{games,roster,cur,syncBadge,appVersion,onNew:()=>setScreen('gameSetup'),onContinue:()=>setScreen('game'),onStats:()=>setScreen('stats'),onGh:()=>setScreen('gh')}} />`}
     ${screen==='gameSetup'&& html`<${GameSetup}  roster=${roster} onStart=${startGame} onBack=${()=>setScreen('home')} />`}
     ${screen==='game' && cur && html`
-      <${Game} ...${{game:cur,roster,onCell:openCell,onFinish:finishGame,onChipUse:useChip,onBack:()=>setScreen('home')}} />
+      <${Game} ...${{game:cur,roster,onCell:openCell,onFinish:finishGame,onChipUse:useChip,onChipReset:resetChip,onBack:()=>setScreen('home')}} />
       ${modal && html`<${Modal} ...${{modal,roster,val:mVal,setVal:setMVal,onScore:enterScore,onCross:()=>enterScore(0),onClear:clearCell,onClose:()=>setModal(null)}} />`}
     `}
     ${screen==='stats'    && html`<${Stats}       ...${{games,roster,tab:stab,setTab:setStab,selPlayer:sPlayer,setSelPlayer:setSPlayer,cmp:sCmp,setCmp:setSCmp,onDeleteGame:deleteGame,onBack:()=>setScreen('home')}} />`}
@@ -374,7 +377,7 @@ function GameSetup({roster,onStart,onBack}) {
 
 // ═══ GAME ════════════════════════════════════════════════════════
 
-function Game({game,roster,onCell,onFinish,onChipUse,onBack}) {
+function Game({game,roster,onCell,onFinish,onChipUse,onChipReset,onBack}) {
   const n   = game.players.length;
   const sc  = game.players.map(p=>calc(p.scores));
   const cw  = colW(n);
@@ -411,12 +414,16 @@ function Game({game,roster,onCell,onFinish,onChipUse,onBack}) {
           <div style=${{fontSize:9,color:C.muted}}>
             ${scoresVisible?(sc[i].b?html`<span style=${{color:C.green}}>✓ Bonus</span>`:html`<span>−${73-sc[i].u}</span>`):'—'}
           </div>
-          <div style=${{display:'flex',gap:3,marginTop:4}}>
-            ${[0,1,2].map(ci=>html`<button key=${ci} onClick=${()=>ci<(p.chips??3)&&onChipUse(i)}
-              title=${ci<(p.chips??3)?'Chip verwenden':'aufgebraucht'}
-              style=${{width:14,height:14,borderRadius:'50%',border:'none',cursor:ci<(p.chips??3)?'pointer':'default',
-                background:ci<(p.chips??3)?pCol(i):'#2a2448',padding:0,flexShrink:0}}/>
-            `)}
+          <div style=${{display:'flex',gap:3,marginTop:4,alignItems:'center'}}>
+            ${(p.chips??3)===0
+              ? html`<button onClick=${()=>onChipReset(i)}
+                  style=${{background:'none',border:`1px solid ${pCol(i)}`,borderRadius:8,
+                    color:pCol(i),cursor:'pointer',fontSize:9,padding:'2px 5px',lineHeight:1}}>↺ 3</button>`
+              : [0,1,2].map(ci=>html`<button key=${ci} onClick=${()=>ci<(p.chips??3)&&onChipUse(i)}
+                  style=${{width:14,height:14,borderRadius:'50%',border:'none',
+                    cursor:ci<(p.chips??3)?'pointer':'default',
+                    background:ci<(p.chips??3)?pCol(i):'#2a2448',padding:0,flexShrink:0}}/>`)
+            }
           </div>
         </div>`)}
       </div>
@@ -441,20 +448,20 @@ function Game({game,roster,onCell,onFinish,onChipUse,onBack}) {
           ${game.players.map((_,i)=>html`<${GCell} key=${i} bg=${cBg(i,cat.id)} color=${cCol(i,cat.id)} cw=${cw} onClick=${()=>onCell(i,cat)}>${cTxt(i,cat.id)}</${GCell}>`)}
         </${GRow}>`)}
 
-        <${GTot} gridCols=${gridCols} label="Summe"           vals=${sc.map(s=>s.u)} />
+        <${GTot} gridCols=${gridCols} label="Summe"           vals=${sc.map(s=>s.u)} hidden=${!scoresVisible}/>
         <${GTot} gridCols=${gridCols} label="Bonus (ab 73→+45)" vals=${sc.map(s=>s.b)}
-          sub=${sc.map(s=>s.b?'✓':`-${73-s.u}`)} subC=${sc.map(s=>s.b?C.green:C.muted)} />
-        <${GTot} gridCols=${gridCols} label="Oberer Teil"     vals=${sc.map(s=>s.uTotal)} hi=${true} />
+          sub=${sc.map(s=>s.b?'✓':`-${73-s.u}`)} subC=${sc.map(s=>s.b?C.green:C.muted)} hidden=${!scoresVisible}/>
+        <${GTot} gridCols=${gridCols} label="Oberer Teil"     vals=${sc.map(s=>s.uTotal)} hi=${true} hidden=${!scoresVisible}/>
 
         <${GSec} label="UNTERER TEIL" />
         ${LOWER.map(cat=>html`<${GRow} key=${cat.id} gridCols=${gridCols} label=${cat.label} sub=${cat.t==='fix'?`${cat.pts} Pkt`:cat.desc}>
           ${game.players.map((_,i)=>html`<${GCell} key=${i} bg=${cBg(i,cat.id)} color=${cCol(i,cat.id)} cw=${cw} onClick=${()=>onCell(i,cat)}>${cTxt(i,cat.id)}</${GCell}>`)}
         </${GRow}>`)}
 
-        <${GTot} gridCols=${gridCols} label="Unterer Teil"    vals=${sc.map(s=>s.l)} />
-        <${GTot} gridCols=${gridCols} label="Oberer Teil"     vals=${sc.map(s=>s.uTotal)} />
+        <${GTot} gridCols=${gridCols} label="Unterer Teil"    vals=${sc.map(s=>s.l)} hidden=${!scoresVisible}/>
+        <${GTot} gridCols=${gridCols} label="Oberer Teil"     vals=${sc.map(s=>s.uTotal)} hidden=${!scoresVisible}/>
         <${GTot} gridCols=${gridCols} label="ENDSUMME"        vals=${sc.map(s=>s.total)} hi=${true} big=${true}
-          pColors=${game.players.map((_,i)=>pColL(i))} />
+          pColors=${game.players.map((_,i)=>pColL(i))} hidden=${!scoresVisible}/>
 
         ${done && html`<div style=${{marginTop:20,background:'linear-gradient(135deg,#2d1060,#1a0a30)',
           borderRadius:20,padding:'20px',textAlign:'center',border:`1px solid ${PC[0]}`}}>
@@ -489,14 +496,14 @@ function GCell({bg,color,onClick,cw,children}) {
     display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',
     fontSize:13,fontWeight:700,color,border:`1px solid ${C.border}`}}>${children}</div>`;
 }
-function GTot({gridCols,label,vals,sub,subC,hi,big,pColors}) {
+function GTot({gridCols,label,vals,sub,subC,hi,big,pColors,hidden}) {
   return html`<div style=${{display:'grid',gridTemplateColumns:gridCols,gap:4,marginBottom:3,
     alignItems:'center',background:hi?C.surface2:'transparent',borderRadius:9,padding:hi?'5px 6px':'3px 6px'}}>
     <div style=${{fontSize:hi?11:10,color:hi?C.text:C.muted,fontWeight:hi?700:400}}>${label}</div>
     ${vals.map((v,i)=>html`<div key=${i} style=${{textAlign:'center',
       fontSize:big?20:hi?13:12,fontWeight:hi||big?800:500,
-      color:big?(pColors?.[i]||C.text):hi?C.text:C.muted}}>
-      ${v}${sub&&html`<div style=${{fontSize:9,color:subC?.[i]??C.muted,fontWeight:400}}>${sub[i]}</div>`}
+      color:big?(pColors?.[i]||C.text):hi?C.text:C.muted,opacity:hidden?0.25:1}}>
+      ${hidden?'?':v}${sub&&!hidden&&html`<div style=${{fontSize:9,color:subC?.[i]??C.muted,fontWeight:400}}>${sub[i]}</div>`}
     </div>`)}
   </div>`;
 }
@@ -704,20 +711,28 @@ function Stats({games,roster,tab,setTab,selPlayer,setSelPlayer,cmp,setCmp,onDele
               </div>
             </div>
             <div style=${{background:C.surface,borderRadius:16,padding:14,marginBottom:12}}>
-              <div style=${{fontSize:13,fontWeight:700,marginBottom:10}}>Kategorie-Erreichungsrate</div>
-              ${selSt.catData.filter(c=>c.played>0&&LOWER.some(l=>l.id===c.id)).map(c=>html`<div key=${c.id} style=${{marginBottom:8}}>
-                <div style=${{display:'flex',justifyContent:'space-between',marginBottom:3}}>
-                  <span style=${{fontSize:12}}>${c.label}</span>
-                  <span style=${{fontSize:12}}>
-                    <strong>${c.rate}%</strong>
-                    ${c.avgPts>0?html`<span style=${{color:C.muted}}> · Ø ${c.avgPts}</span>`:''}
-                    <span style=${{color:C.muted2}}> (${c.achN}/${c.played})</span>
-                  </span>
-                </div>
-                <div style=${{height:5,background:C.surface2,borderRadius:3,overflow:'hidden'}}>
-                  <div style=${{height:5,borderRadius:3,background:PC[ci%5],width:`${c.rate}%`,transition:'width 0.4s'}}/>
-                </div>
-              </div>`)}
+              <div style=${{fontSize:13,fontWeight:700,marginBottom:10}}>Kategorie-Statistiken</div>
+              ${selSt.catData.filter(c=>c.played>0&&LOWER.some(l=>l.id===c.id)).map(c=>{
+                const isFixed=c.id==='dreiPaare'||c.id==='zweiDreier'||c.id==='fullHouse'||c.id==='grossesFullHouse'||c.id==='kleineStrasse'||c.id==='grosseStrasse'||c.id==='highway'||c.id==='kniffel'||c.id==='kniffelExtreme'||c.id==='zehnMinus'||c.id==='dreiDreissig';
+                const isChance=c.id==='chance'||c.id==='superChance';
+                return html`<div key=${c.id} style=${{marginBottom:10}}>
+                  <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                    <span style=${{fontSize:12,fontWeight:600}}>${c.label}</span>
+                    <div style=${{display:'flex',alignItems:'center',gap:6}}>
+                      ${!isFixed&&!isChance&&html`<span style=${{fontSize:12,color:C.muted}}>${c.rate}%</span>`}
+                      ${!isFixed&&c.avgPts>0&&html`<span style=${{background:PC[ci%5]+'33',color:PCL[ci%5],
+                        fontWeight:800,fontSize:13,padding:'2px 8px',borderRadius:8,border:`1px solid ${PC[ci%5]}55`}}>
+                        Ø ${c.avgPts}
+                      </span>`}
+                      ${isFixed&&html`<span style=${{fontSize:12,color:C.muted}}>${c.rate}%</span>`}
+                      <span style=${{fontSize:11,color:C.muted2}}>(${c.achN}/${c.played})</span>
+                    </div>
+                  </div>
+                  ${!isChance&&html`<div style=${{height:5,background:C.surface2,borderRadius:3,overflow:'hidden'}}>
+                    <div style=${{height:5,borderRadius:3,background:PC[ci%5],width:`${c.rate}%`,transition:'width 0.4s'}}/>
+                  </div>`}
+                </div>`;
+              })}
             </div>
           `})()}
         </div>`}
@@ -785,39 +800,90 @@ function Stats({games,roster,tab,setTab,selPlayer,setSelPlayer,cmp,setCmp,onDele
                 <span><span style=${{color:c2}}>■</span> ${p2}</span>
               </div>
             </div>`}
+            <!-- Category comparison -->
+            ${(()=>{
+              const catCmp=LOWER.map(cat=>{
+                const getEntries=(name)=>shared.map(g=>{const pl=g.players.find(p=>p.name===name);return pl?.scores[cat.id];}).filter(v=>v!==undefined);
+                const e1=getEntries(p1),e2=getEntries(p2);
+                const a1=e1.filter(v=>v>0),a2=e2.filter(v=>v>0);
+                return {cat,
+                  p1:{rate:e1.length?Math.round(a1.length/e1.length*100):0,avg:a1.length?Math.round(a1.reduce((a,b)=>a+b,0)/a1.length):0,played:e1.length},
+                  p2:{rate:e2.length?Math.round(a2.length/e2.length*100):0,avg:a2.length?Math.round(a2.reduce((a,b)=>a+b,0)/a2.length):0,played:e2.length}};
+              }).filter(c=>c.p1.played>0||c.p2.played>0);
+              const isFixed=id=>['dreiPaare','zweiDreier','fullHouse','grossesFullHouse','kleineStrasse','grosseStrasse','highway','kniffel','kniffelExtreme','zehnMinus','dreiDreissig'].includes(id);
+              const isChance=id=>id==='chance'||id==='superChance';
+              return html`<div style=${{background:C.surface,borderRadius:16,padding:14,marginTop:10}}>
+                <div style=${{fontSize:13,fontWeight:700,marginBottom:10}}>Kategorie-Vergleich</div>
+                ${catCmp.map(({cat,p1:s1,p2:s2})=>html`<div key=${cat.id} style=${{marginBottom:10}}>
+                  <div style=${{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4}}>${cat.label}</div>
+                  <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+                    ${[[p1,s1,c1,cl1],[p2,s2,c2,cl2]].map(([name,s,col,lcol])=>html`<div key=${name}
+                      style=${{background:C.surface2,borderRadius:8,padding:'6px 8px'}}>
+                      <div style=${{fontSize:10,color:lcol,fontWeight:700,marginBottom:3}}>${name}</div>
+                      ${!isChance(cat.id)&&html`<div style=${{fontSize:11,color:C.muted}}>${s.rate}% <span style=${{color:C.muted2,fontSize:10}}>(${s.played})</span></div>`}
+                      ${!isFixed(cat.id)&&s.avg>0&&html`<div style=${{fontWeight:800,fontSize:13,color:lcol,
+                        background:col+'22',borderRadius:6,padding:'2px 6px',display:'inline-block',marginTop:2}}>Ø ${s.avg}</div>`}
+                    </div>`)}
+                  </div>
+                </div>`)}
+              </div>`;
+            })()}
           </div>`;
         })()}
       </div>`}
 
       ${tab==='dice' && html`<div>
-        <${Sel} val=${selP} set=${setSelPlayer} label="Spieler" />
-        ${selSt && html`<div>
-          <div style=${{background:C.surface,borderRadius:16,padding:14}}>
-            <div style=${{fontSize:13,fontWeight:700,marginBottom:4}}>Ø Würfelanzahl pro Seite</div>
-            <div style=${{fontSize:11,color:C.muted,marginBottom:12}}>
-              Wie viele Würfel einer Seite wurden im Schnitt eingetragen — nur eingetragene (nicht gestrichene) Felder.
+        <div style=${{marginBottom:14}}>
+          <div style=${{fontSize:11,color:C.muted2,letterSpacing:1,textTransform:'uppercase',marginBottom:5,fontWeight:700}}>Spieler</div>
+          <div style=${{position:'relative'}}>
+            <select value=${selP||''} onChange=${e=>setSelPlayer(e.target.value)}
+              style=${{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,
+                padding:'10px 36px 10px 14px',color:C.text,fontSize:14,outline:'none',cursor:'pointer'}}>
+              <option value="">Spieler wählen…</option>
+              ${playerStats.map(p=>html`<option key=${p.name} value=${p.name}>${p.name}</option>`)}
+              <option value="__gesamt__">Gesamt (alle)</option>
+            </select>
+            <span style=${{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',color:C.muted,pointerEvents:'none'}}>▾</span>
+          </div>
+        </div>
+        ${(selP||selP==='__gesamt__') && (()=>{
+          const isGesamt = selP==='__gesamt__';
+          const diceData = isGesamt
+            ? UPPER.map(cat=>{
+                const vals=games.flatMap(g=>g.players.filter(p=>p.scores[cat.id]>0).map(p=>Math.round(p.scores[cat.id]/cat.n)));
+                return {label:cat.face,name:cat.label,val:vals.length?+(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):0};
+              })
+            : (playerStats.find(p=>p.name===selP)?.avgDice||[]);
+          const color = isGesamt ? PC[4] : PC[roster.indexOf(selP)%5];
+          const colorL = isGesamt ? PCL[4] : PCL[roster.indexOf(selP)%5];
+          const label = isGesamt ? 'Gesamt (alle Spieler)' : selP;
+          return html`<div style=${{background:C.surface,borderRadius:16,padding:14}}>
+            <div style=${{fontSize:13,fontWeight:700,marginBottom:2}}>Ø Würfelanzahl pro Seite</div>
+            <div style=${{fontSize:11,color:C.muted,marginBottom:10}}>
+              ${isGesamt?'Alle Spieler zusammengefasst.':'Nur eingetragene (nicht gestrichene) Felder.'}
             </div>
             <div style=${{height:180}}>
               <${ResponsiveContainer} width="100%" height="100%">
-                <${BarChart} data=${selSt.avgDice} barCategoryGap="15%">
+                <${BarChart} data=${diceData} barCategoryGap="15%">
                   <${XAxis} dataKey="label" tick=${{fill:C.muted,fontSize:18}} axisLine=${false} tickLine=${false}/>
-                  <${YAxis} tick=${{fill:C.muted,fontSize:10}} axisLine=${false} tickLine=${false} width=${24}/>
+                  <${YAxis} domain=${[0,6]} ticks=${[0,1,2,3,4,5,6]}
+                    tick=${{fill:C.muted,fontSize:10}} axisLine=${false} tickLine=${false} width=${24}/>
                   <${Tooltip} contentStyle=${{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10}}
                     cursor=${{fill:'rgba(255,255,255,0.05)'}} formatter=${(v,n)=>[`Ø ${v}`,n]}/>
-                  <${Bar} dataKey="val" name=${selSt.name} radius=${[5,5,0,0]}>
-                    ${selSt.avgDice.map((_,i)=>html`<${Cell} key=${i} fill=${PC[roster.indexOf(selSt.name)%5]}/>`)}
+                  <${Bar} dataKey="val" name=${label} radius=${[5,5,0,0]}>
+                    ${diceData.map((_,i)=>html`<${Cell} key=${i} fill=${color}/>`)}
                   </${Bar}>
                 </${BarChart}>
               </${ResponsiveContainer}>
             </div>
             <div style=${{display:'flex',justifyContent:'space-around',marginTop:8}}>
-              ${selSt.avgDice.map(d=>html`<div key=${d.label} style=${{textAlign:'center'}}>
+              ${diceData.map(d=>html`<div key=${d.label} style=${{textAlign:'center'}}>
                 <div style=${{fontSize:16}}>${d.label}</div>
-                <div style=${{fontSize:12,fontWeight:700}}>${d.val}</div>
+                <div style=${{fontSize:13,fontWeight:800,color:colorL}}>${d.val}</div>
               </div>`)}
             </div>
-          </div>
-        </div>`}
+          </div>`;
+        })()}
       </div>`}
 
       ${tab==='gesamt' && (()=>{
@@ -854,20 +920,27 @@ function Stats({games,roster,tab,setTab,selPlayer,setSelPlayer,cmp,setCmp,onDele
           </div>
 
           <!-- Category bars -->
-          ${allCatStats.map(c=>html`<div key=${c.id} style=${{background:C.surface,borderRadius:14,padding:'11px 14px',marginBottom:8}}>
-            <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-              <span style=${{fontSize:13,fontWeight:700}}>${c.label}</span>
-              <span style=${{fontSize:11}}>
-                <strong style=${{color:c.rate>=70?C.green:c.rate>=40?PCL[3]:PCL[1]}}>${c.rate}%</strong>
-                ${c.t!=='fix'&&c.avg>0?html`<span style=${{color:C.muted}}> · Ø ${c.avg} Pkt</span>`:''}
-                <span style=${{color:C.muted2}}> (${c.achN}/${c.played})</span>
-              </span>
-            </div>
-            <div style=${{height:6,background:C.surface2,borderRadius:3,overflow:'hidden'}}>
-              <div style=${{height:6,borderRadius:3,transition:'width 0.4s',width:`${c.rate}%`,
-                background:c.rate>=70?C.green:c.rate>=40?PC[3]:PC[1]}}/>
-            </div>
-          </div>`)}
+          ${allCatStats.map(c=>{
+            const isFixed=['dreiPaare','zweiDreier','fullHouse','grossesFullHouse','kleineStrasse','grosseStrasse','highway','kniffel','kniffelExtreme','zehnMinus','dreiDreissig'].includes(c.id);
+            const isChance=c.id==='chance'||c.id==='superChance';
+            return html`<div key=${c.id} style=${{background:C.surface,borderRadius:14,padding:'11px 14px',marginBottom:8}}>
+              <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                <span style=${{fontSize:13,fontWeight:700}}>${c.label}</span>
+                <div style=${{display:'flex',alignItems:'center',gap:6}}>
+                  ${!isChance&&html`<strong style=${{fontSize:12,color:c.rate>=70?C.green:c.rate>=40?PCL[3]:PCL[1]}}>${c.rate}%</strong>`}
+                  ${!isFixed&&c.avg>0&&html`<span style=${{fontWeight:800,fontSize:13,color:PCL[0],
+                    background:PC[0]+'22',borderRadius:8,padding:'2px 8px',border:`1px solid ${PC[0]}44`}}>
+                    Ø ${c.avg}
+                  </span>`}
+                  <span style=${{color:C.muted2,fontSize:11}}>(${c.achN}/${c.played})</span>
+                </div>
+              </div>
+              ${!isChance&&html`<div style=${{height:6,background:C.surface2,borderRadius:3,overflow:'hidden'}}>
+                <div style=${{height:6,borderRadius:3,transition:'width 0.4s',width:`${c.rate}%`,
+                  background:c.rate>=70?C.green:c.rate>=40?PC[3]:PC[1]}}/>
+              </div>`}
+            </div>`;
+          })}
 
           <!-- Top 3 / Bottom 3 -->
           <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:16}}>
@@ -991,7 +1064,7 @@ function GhSettings({initial,onSave,onBack}) {
           color:C.text,cursor:'pointer',fontSize:14,fontWeight:600,opacity:(!token||!owner||!repo)?0.4:1}}>
         ${testing?'…':'Testen'}
       </button>
-      <button onClick=${()=>onSave({token,owner,repo})} disabled=${!token||!owner||!repo}
+      <button onClick=${()=>onSave({token:token.trim(),owner:owner.trim(),repo:repo.trim()})} disabled=${!token.trim()||!owner.trim()||!repo.trim()}
         style=${{flex:2,background:PC[0],border:'none',borderRadius:12,padding:'11px',color:'white',
           cursor:'pointer',fontSize:14,fontWeight:700,opacity:(!token||!owner||!repo)?0.4:1}}>
         Aktivieren
