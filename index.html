@@ -114,7 +114,7 @@ const avg    = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.lengt
 const ghHeaders = t => ({ Authorization:`token ${t}`, Accept:'application/vnd.github.v3+json' });
 async function ghRead(cfg) {
   const r = await fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/gamedata.json`,
-    {headers:ghHeaders(cfg.token)});
+    {headers:ghHeaders(cfg.token), cache:'no-store'});
   if (r.status===404) return {data:null,sha:null};
   if (!r.ok) {
     const j = await r.json().catch(()=>({}));
@@ -125,7 +125,7 @@ async function ghRead(cfg) {
     const data = JSON.parse(atob(j.content.replace(/\n/g,'')));
     return {data, sha:j.sha};
   } catch {
-    return {data:null, sha:j.sha}; // Ungültiges JSON → wie leer behandeln, SHA behalten
+    return {data:null, sha:j.sha};
   }
 }
 async function ghWrite(cfg,data,sha) {
@@ -133,7 +133,8 @@ async function ghWrite(cfg,data,sha) {
   const body={message:'Kniffel update',content:btoa(unescape(encodeURIComponent(JSON.stringify(data,null,2))))};
   if (sha) body.sha=sha;
   const r = await fetch(url,
-    {method:'PUT',headers:{...ghHeaders(cfg.token),'Content-Type':'application/json'},body:JSON.stringify(body)});
+    {method:'PUT', cache:'no-store',
+     headers:{...ghHeaders(cfg.token),'Content-Type':'application/json'},body:JSON.stringify(body)});
   if (!r.ok) {
     const j = await r.json().catch(()=>({}));
     throw new Error(`GitHub ${r.status} (${cfg.owner}/${cfg.repo}): ${j.message||'?'}`);

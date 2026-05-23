@@ -1,4 +1,4 @@
-const CACHE = 'yahtzee-extreme-v18'; // ⬆️ Bei jedem Update nur diese Zahl hochzählen!
+const CACHE = 'yahtzee-extreme-v19'; // ⬆️ Bei jedem Update nur diese Zahl hochzählen!
 
 // Pre-cache only local files; CDN files get cached on first use
 const LOCAL = ['./', './index.html', './manifest.json', './icon.svg'];
@@ -19,6 +19,11 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  // Never cache GitHub API calls — always fetch fresh
+  if (e.request.url.includes('api.github.com')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
