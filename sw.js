@@ -1,4 +1,4 @@
-const CACHE = 'yahtzee-extreme-v15'; // ⬆️ Bei jedem Update nur diese Zahl hochzählen!
+const CACHE = 'yahtzee-extreme-v16'; // ⬆️ Bei jedem Update nur diese Zahl hochzählen!
 
 // Pre-cache only local files; CDN files get cached on first use
 const LOCAL = ['./', './index.html', './manifest.json', './icon.svg'];

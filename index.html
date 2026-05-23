@@ -211,6 +211,19 @@ function App() {
     setScreen('game');
   };
   const finishGame = () => { const ng=[...games,cur]; saveGames(ng,roster); saveCur(null); setScreen('home'); };
+  const cancelGame = () => { saveCur(null); setScreen('home'); };
+  const deletePlayer = name => {
+    if (!confirm(`"${name}" wirklich aus der Kartei löschen?`)) return;
+    saveRoster(roster.filter(n=>n!==name));
+  };
+  const renamePlayer = (oldName, newName) => {
+    if (!newName.trim() || newName.trim()===oldName) return;
+    const n = newName.trim();
+    const newRoster = roster.map(r=>r===oldName?n:r);
+    const newGames  = games.map(g=>({...g,players:g.players.map(p=>p.name===oldName?{...p,name:n}:p)}));
+    saveRoster(newRoster);
+    saveGames(newGames, newRoster);
+  };
   const useChip = (pIdx) => {
     const chips = cur.players[pIdx].chips ?? 3;
     if (chips <= 0) return;
@@ -245,20 +258,21 @@ function App() {
   </span>`;
 
   return html`<div style=${{minHeight:'100vh',background:C.bg,color:C.text}}>
-    ${screen==='home'     && html`<${Home}       ...${{games,roster,cur,syncBadge,appVersion,onNew:()=>setScreen('gameSetup'),onContinue:()=>setScreen('game'),onStats:()=>setScreen('stats'),onGh:()=>setScreen('gh')}} />`}
+    ${screen==='home'     && html`<${Home}       ...${{games,roster,cur,syncBadge,appVersion,onNew:()=>setScreen('gameSetup'),onContinue:()=>setScreen('game'),onStats:()=>setScreen('stats'),onGh:()=>setScreen('gh'),onRoster:()=>setScreen('roster')}} />`}
     ${screen==='gameSetup'&& html`<${GameSetup}  roster=${roster} onStart=${startGame} onBack=${()=>setScreen('home')} />`}
     ${screen==='game' && cur && html`
-      <${Game} ...${{game:cur,roster,onCell:openCell,onFinish:finishGame,onChipUse:useChip,onChipReset:resetChip,onBack:()=>setScreen('home')}} />
+      <${Game} ...${{game:cur,roster,onCell:openCell,onFinish:finishGame,onCancel:cancelGame,onChipUse:useChip,onChipReset:resetChip,onBack:()=>setScreen('home')}} />
       ${modal && html`<${Modal} ...${{modal,roster,val:mVal,setVal:setMVal,onScore:enterScore,onCross:()=>enterScore(0),onClear:clearCell,onClose:()=>setModal(null)}} />`}
     `}
     ${screen==='stats'    && html`<${Stats}       ...${{games,roster,tab:stab,setTab:setStab,selPlayer:sPlayer,setSelPlayer:setSPlayer,cmp:sCmp,setCmp:setSCmp,onDeleteGame:deleteGame,onBack:()=>setScreen('home')}} />`}
     ${screen==='gh'       && html`<${GhSettings}  initial=${ghCfg} onSave=${cfg=>{setGhCfg(cfg);lsSet('kx:gh',cfg);if(cfg)doSync(cfg);setScreen('home');}} onBack=${()=>setScreen('home')} />`}
+    ${screen==='roster'   && html`<${RosterManager} ...${{roster,games,onDelete:deletePlayer,onRename:renamePlayer,onBack:()=>setScreen('home')}} />`}
   </div>`;
 }
 
 // ═══ HOME ════════════════════════════════════════════════════════
 
-function Home({games,roster,cur,syncBadge,appVersion,onNew,onContinue,onStats,onGh}) {
+function Home({games,roster,cur,syncBadge,appVersion,onNew,onContinue,onStats,onGh,onRoster}) {
   const recent=[...games].reverse().slice(0,4);
   return html`<div style=${{maxWidth:460,margin:'0 auto',padding:'0 16px 48px'}}>
     <div style=${{textAlign:'center',padding:'44px 0 26px'}}>
@@ -279,6 +293,7 @@ function Home({games,roster,cur,syncBadge,appVersion,onNew,onContinue,onStats,on
     </div>
     <div style=${{display:'flex',justifyContent:'center',gap:20,marginTop:12}}>
       <button onClick=${onGh} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:13}}>☁ GitHub Sync</button>
+      <button onClick=${onRoster} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:13}}>👥 Spieler verwalten</button>
     </div>
     ${recent.length>0 && html`<div style=${{marginTop:28}}>
       <div style=${{fontSize:11,color:C.muted2,letterSpacing:2,textTransform:'uppercase',marginBottom:10,fontWeight:700}}>Letzte Spiele</div>
@@ -377,7 +392,7 @@ function GameSetup({roster,onStart,onBack}) {
 
 // ═══ GAME ════════════════════════════════════════════════════════
 
-function Game({game,roster,onCell,onFinish,onChipUse,onChipReset,onBack}) {
+function Game({game,roster,onCell,onFinish,onCancel,onChipUse,onChipReset,onBack}) {
   const n   = game.players.length;
   const sc  = game.players.map(p=>calc(p.scores));
   const cw  = colW(n);
@@ -401,6 +416,9 @@ function Game({game,roster,onCell,onFinish,onChipUse,onChipReset,onBack}) {
       <div style=${{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
         <button onClick=${onBack} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:20,padding:0}}>‹</button>
         <span style=${{fontSize:12,color:C.muted,flex:1}}>${game.date}</span>
+        <button onClick=${()=>{if(confirm('Spiel wirklich abbrechen? Alle Einträge gehen verloren.'))onCancel();}}
+          style=${{background:'none',border:`1px solid ${C.red}55`,borderRadius:8,color:C.red,
+            cursor:'pointer',fontSize:11,padding:'3px 8px',opacity:0.7}}>✕ Abbrechen</button>
         <button onClick=${()=>setScoresVisible(!scoresVisible)}
           style=${{background:'none',border:'none',cursor:'pointer',fontSize:16,padding:'0 4px',opacity:scoresVisible?1:0.4}}>👁</button>
         <span style=${{fontSize:11,color:C.muted2}}>${pct}%</span>
@@ -990,6 +1008,81 @@ function Stats({games,roster,tab,setTab,selPlayer,setSelPlayer,cmp,setCmp,onDele
         })}
       </div>`}
 
+    </div>
+  </div>`;
+}
+
+// ═══ ROSTER MANAGER ══════════════════════════════════════════════
+
+function RosterManager({roster,games,onDelete,onRename,onBack}) {
+  const [editing, setEditing] = useState(null);
+  const [editVal, setEditVal] = useState('');
+
+  const startEdit = name => { setEditing(name); setEditVal(name); };
+  const saveEdit  = ()   => { onRename(editing, editVal); setEditing(null); };
+
+  // Count games per player
+  const gameCount = name => games.filter(g=>g.players.some(p=>p.name===name)).length;
+
+  // Warn about case duplicates
+  const duplicates = roster.filter(n =>
+    roster.some(m => m!==n && m.toLowerCase()===n.toLowerCase())
+  );
+
+  return html`<div style=${{maxWidth:440,margin:'0 auto',padding:'20px 16px 48px'}}>
+    <div style=${{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <button onClick=${onBack} style=${{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:20,padding:0}}>‹</button>
+      <span style=${{fontSize:20,fontWeight:800}}>👥 Spieler verwalten</span>
+    </div>
+
+    ${duplicates.length>0 && html`<div style=${{background:'#3d1a00',border:`1px solid #f59e0b55`,borderRadius:12,
+      padding:'10px 14px',marginBottom:16,fontSize:12,color:'#fde68a',lineHeight:1.6}}>
+      ⚠ Doppelte Namen (Groß-/Kleinschreibung): ${[...new Set(duplicates.map(d=>d.toLowerCase()))].map(d=>
+        roster.filter(n=>n.toLowerCase()===d).join(' & ')
+      ).join(', ')} — Bitte umbenennen oder löschen.
+    </div>`}
+
+    <div style=${{fontSize:11,color:C.muted2,letterSpacing:2,textTransform:'uppercase',marginBottom:10,fontWeight:700}}>
+      ${roster.length} Spieler
+    </div>
+
+    ${roster.map(name=>{
+      const ci=roster.indexOf(name);
+      const gCount=gameCount(name);
+      const isDup=duplicates.includes(name);
+      return html`<div key=${name} style=${{background:C.surface,borderRadius:14,padding:'12px 14px',
+        marginBottom:8,border:`1px solid ${isDup?'#f59e0b55':C.border}`}}>
+        ${editing===name
+          ? html`<div style=${{display:'flex',gap:8,alignItems:'center'}}>
+              <input value=${editVal} onChange=${e=>setEditVal(e.target.value)}
+                onKeyDown=${e=>{if(e.key==='Enter')saveEdit();if(e.key==='Escape')setEditing(null);}}
+                autoFocus
+                style=${{flex:1,background:C.surface2,border:`2px solid ${PC[ci%5]}`,
+                  borderRadius:10,padding:'8px 12px',color:C.text,fontSize:15,outline:'none'}}/>
+              <button onClick=${saveEdit}
+                style=${{background:C.green,border:'none',borderRadius:10,padding:'8px 12px',
+                  color:'white',cursor:'pointer',fontWeight:700,fontSize:13}}>✓</button>
+              <button onClick=${()=>setEditing(null)}
+                style=${{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,
+                  padding:'8px 12px',color:C.muted,cursor:'pointer',fontSize:13}}>✕</button>
+            </div>`
+          : html`<div style=${{display:'flex',alignItems:'center',gap:10}}>
+              <div style=${{flex:1}}>
+                <div style=${{fontWeight:700,fontSize:15,color:PCL[ci%5]}}>${name}</div>
+                <div style=${{fontSize:11,color:C.muted,marginTop:1}}>${gCount} ${gCount===1?'Spiel':'Spiele'}</div>
+              </div>
+              <button onClick=${()=>startEdit(name)}
+                style=${{background:'none',border:`1px solid ${C.border}`,borderRadius:8,
+                  padding:'6px 10px',color:C.muted,cursor:'pointer',fontSize:13}}>✏️</button>
+              <button onClick=${()=>onDelete(name)}
+                style=${{background:'none',border:`1px solid ${C.red}44`,borderRadius:8,
+                  padding:'6px 10px',color:C.red,cursor:'pointer',fontSize:14}}>🗑</button>
+            </div>`}
+      </div>`;
+    })}
+
+    <div style=${{marginTop:16,fontSize:12,color:C.muted2,textAlign:'center',lineHeight:1.6}}>
+      Umbenennen aktualisiert auch alle gespeicherten Spiele.
     </div>
   </div>`;
 }
