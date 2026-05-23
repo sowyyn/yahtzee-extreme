@@ -176,14 +176,25 @@ function App() {
     if (!c?.token) return;
     setSyncSt('syncing');
     try {
-      const {data,sha}=await ghRead(c);
-      if (data) {
-        const merged=mergeData({games:ls('kx:games',[]),roster:ls('kx:roster',[])},data);
-        setGames(merged.games);    lsSet('kx:games',merged.games);
-        setRoster(merged.roster);  lsSet('kx:roster',merged.roster);
-        lsSet('kx:gh_sha',sha);
-      }
-      setSyncSt('ok'); setSyncMsg(new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
+      const localGames  = ls('kx:games', []);
+      const localRoster = ls('kx:roster', []);
+      const {data, sha} = await ghRead(c);
+
+      // Merge local + remote
+      const merged = data
+        ? mergeData({games:localGames, roster:localRoster}, data)
+        : {games:localGames, roster:localRoster};
+
+      // Update local state with merged data
+      setGames(merged.games);    lsSet('kx:games',  merged.games);
+      setRoster(merged.roster);  lsSet('kx:roster', merged.roster);
+
+      // Always write merged result back to GitHub (bidirektional)
+      const newSha = await ghWrite(c, {version:1, roster:merged.roster, games:merged.games}, sha);
+      lsSet('kx:gh_sha', newSha);
+
+      setSyncSt('ok');
+      setSyncMsg(new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
     } catch(e) { setSyncSt('error'); setSyncMsg(e.message); }
   };
   const pushGh = async (g,r) => {
